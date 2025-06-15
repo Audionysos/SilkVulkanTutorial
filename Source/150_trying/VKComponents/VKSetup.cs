@@ -2,10 +2,14 @@
 
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
-using Device = Silk.NET.Vulkan.Device;
-using Queue = Silk.NET.Vulkan.Queue;
 using Silk.NET.Windowing;
 using System.Diagnostics.CodeAnalysis;
+using Device = Silk.NET.Vulkan.Device;
+using Queue = Silk.NET.Vulkan.Queue;
+using Buffer = Silk.NET.Vulkan.Buffer;
+using MemProps = Silk.NET.Vulkan.MemoryPropertyFlags;
+using BuffUsage = Silk.NET.Vulkan.BufferUsageFlags;
+using _150_trying.utils;
 
 namespace _150_trying.VKComponents;
 
@@ -137,6 +141,94 @@ public unsafe class VKSetup {
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
 	}
+
+	#region Helper methods
+	/// <summary>https://vulkan-tutorial.com/Vertex_buffers/Staging_buffer</summary>
+	/// <param name="s"></param>
+	/// <param name="size"></param>
+	/// <param name="usage"></param>
+	/// <param name="properties"></param>
+	/// <param name="buffer"></param>
+	/// <param name="memory"></param>
+	public void createBuffer(ulong size
+		, BuffUsage usage, MemProps properties
+		, out Buffer buffer, out DeviceMemory memory) {
+		var bi = new BufferCreateInfo {
+			SType = StructureType.BufferCreateInfo,
+			Size = size,
+			Usage = usage,
+			SharingMode = SharingMode.Exclusive,
+		};
+
+		vk.CreateBuffer(device, in bi, null, out buffer)
+			.throwOnFail("Failed to create vertex buffer");
+
+		MemoryRequirements memReq;
+		vk.GetBufferMemoryRequirements(device, buffer, &memReq);
+
+		MemoryAllocateInfo allocInfo = new() {
+			SType = StructureType.MemoryAllocateInfo,
+			AllocationSize = memReq.Size,
+			MemoryTypeIndex = FindMemoryType(
+				memReq.MemoryTypeBits, properties
+			)
+		};
+
+		vk.AllocateMemory(device, in allocInfo, null, out memory)
+			.throwOnFail("Failed to allocate memory for vertex buffer");
+		vk.BindBufferMemory(device, buffer, memory, 0);
+	}
+
+	public void copyBuffer(Buffer src, Buffer dst, ulong size) {
+		CommandPool cp = require<VKCommandPool>().commandPool;
+		CommandBufferAllocateInfo allocInfo = new() {
+			SType = StructureType.CommandBufferAllocateInfo,
+			Level = CommandBufferLevel.Primary,
+			CommandPool = cp,
+			CommandBufferCount = 1,
+		};
+		vk.AllocateCommandBuffers(device
+			, in allocInfo, out var cmdBuff);
+
+		CommandBufferBeginInfo beginInfo = new() {
+			SType = StructureType.CommandBufferBeginInfo,
+			Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+		};
+		vk.BeginCommandBuffer(cmdBuff, in beginInfo);
+
+		BufferCopy copyRegion = new() {
+			SrcOffset = 0, DstOffset = 0, //optional
+			Size = size
+		};
+		vk.CmdCopyBuffer(cmdBuff, src, dst, 1, in copyRegion);
+		vk.EndCommandBuffer(cmdBuff);
+
+		SubmitInfo si = new() {
+			SType = StructureType.SubmitInfo,
+			CommandBufferCount = 1,
+			PCommandBuffers = &cmdBuff
+		};
+
+		vk.QueueSubmit(graphicsQueue, 1, in si, new Fence());
+		vk.QueueWaitIdle(graphicsQueue);
+
+		vk.FreeCommandBuffers(device, cp, 1, in cmdBuff);
+	}
+
+	private uint FindMemoryType(uint typeFilter, MemProps properties) {
+		vk.GetPhysicalDeviceMemoryProperties
+			(physicalDevice, out var props);
+
+		for (int i = 0; i < props.MemoryTypeCount; i++) {
+			if ((typeFilter & 1 << i) != 0
+				&& (props.MemoryTypes[i].PropertyFlags & properties) == properties) {
+				return (uint)i;
+			}
+		}
+
+		throw new Exception("failed to find suitable memory type!");
+	}
+	#endregion
 
 
 	//public T? get<T>() { return default; }

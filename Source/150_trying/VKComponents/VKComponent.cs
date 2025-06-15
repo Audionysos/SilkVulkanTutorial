@@ -15,6 +15,7 @@ using _150_trying.geom;
 using Silk.NET.OpenAL;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using _150_trying.utils;
+using System;
 
 namespace _150_trying.VKComponents;
 
@@ -924,8 +925,13 @@ public unsafe class VKCommandBuffers : VKComponent {
 			s.vk.CmdBindVertexBuffers
 				(cmdBuffs[i], 0, 1, vertexBuffers, offsets);
 
-			s.vk!.CmdDraw(cmdBuffs[i], 
-				(uint)vb.verts.Count, 1, 0, 0);
+			Buffer[] indsBuffers = [vb.indBuff];
+			s.vk.CmdBindIndexBuffer(cmdBuffs[i], vb.indBuff, 0, IndexType.Uint32);
+
+			s.vk.CmdDrawIndexed(cmdBuffs[i], (uint)vb.inds.Count, 1, 0, 0, 0);
+
+			//s.vk!.CmdDraw(cmdBuffs[i], 
+			//	(uint)vb.verts.Count, 1, 0, 0);
 
 			s.vk!.CmdEndRenderPass(cmdBuffs[i]);
 
