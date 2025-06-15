@@ -3,13 +3,10 @@
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Vulkan.Extensions.EXT;
-using Device = Silk.NET.Vulkan.Device;
-using Queue = Silk.NET.Vulkan.Queue;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Core;
-using Silk.NET.Windowing;
 using System.Runtime.CompilerServices;
 using Silk.NET.Maths;
 using System.Collections;
@@ -18,226 +15,14 @@ using _150_trying.geom;
 using Silk.NET.OpenAL;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using _150_trying.utils;
-using System.Diagnostics.CodeAnalysis;
 
-namespace _150_trying;
+namespace _150_trying.VKComponents;
 
 public abstract class VKComponent {
 	protected bool _i;
 	public bool initialized { get => _i; set => _i = value || _i; }
 	public abstract void init(VKSetup s);
 	public abstract void clear(VKSetup s);
-
-}
-
-public unsafe class VKSetup {
-	public const int MAX_FRAMES_IN_FLIGHT = 2;
-
-	public IWindow window { get; }
-	public Instance instance { get; set; }
-	public Vk vk { get; set; }
-
-	public readonly string[] validationLayers = [
-		"VK_LAYER_KHRONOS_validation"
-	];
-	public readonly string[] deviceExtensions = [
-		KhrSwapchain.ExtensionName
-	];
-
-	public bool EnableValidationLayers { get; set; } = true;
-
-	public PhysicalDevice physicalDevice;
-	public Device device;
-	public Queue graphicsQueue;
-	public Queue presentQueue;
-
-	private List<VKComponent> components = [];
-
-	public VKSetup(IWindow window) {
-		this.window = window;
-		init();
-	}
-
-	[MemberNotNull("vk")]
-	private VKSetup init() {
-		components = [
-			new VKInstance(), //this should set `vk`
-			new VKDebugMessenger(),
-			new VKSurface(),
-			new VKDevicePicker(),
-			new VKLogicalDevice(),
-			new VKSwapChain(),
-			new VKImageViews(),
-			new VKRenderPass(),
-			new VKGraphicsPipeline(),
-			new VKFrameBuffer(),
-			new VKVertexBuffer(),
-			new VKCommandPool(),
-			new VKCommandBuffers(),
-			new VKSyncObjects(),
-		];
-		foreach (var c in components) {
-			c.init(this);
-			if (vk == null) throw new Exception("Failed to initialize.");
-			c.initialized = true;
-		}
-		if (vk == null) throw new Exception("Failed to initialize.");
-		return this;
-	}
-
-	public void clear() {
-		for (int i = components.Count - 1; i >= 0; i--) {
-			var c = components[i];
-			c.clear(this);
-		}
-	}
-	int currentFrame;
-
-	public void DrawFrame(double delta) {
-		var (so, sc, cb) = require<VKSyncObjects, VKSwapChain, VKCommandBuffers>();
-		vk!.WaitForFences(device, 1, in so.inFlightFences![currentFrame]
-			, true, ulong.MaxValue);
-
-		uint imageIndex = 0;
-		sc.khrSwapChain!.AcquireNextImage(device, sc.swapChain, ulong.MaxValue
-			, so.imageAvailableSemaphores![currentFrame], default, ref imageIndex);
-
-		if (so.imagesInFlight![imageIndex].Handle != default) {
-			vk!.WaitForFences(device, 1, in so.imagesInFlight[imageIndex]
-				, true, ulong.MaxValue);
-		}
-		so.imagesInFlight[imageIndex] = so.inFlightFences[currentFrame];
-
-		SubmitInfo submitInfo = new() {
-			SType = StructureType.SubmitInfo,
-		};
-
-		var waitSemaphores = stackalloc[] {
-			so.imageAvailableSemaphores[currentFrame] };
-		var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-
-		var buffer = cb.cmdBuffs![imageIndex];
-
-		submitInfo = submitInfo with {
-			WaitSemaphoreCount = 1,
-			PWaitSemaphores = waitSemaphores,
-			PWaitDstStageMask = waitStages,
-
-			CommandBufferCount = 1,
-			PCommandBuffers = &buffer
-		};
-
-		var signalSemaphores = stackalloc[] { so.renderFinishedSemaphores![currentFrame] };
-		submitInfo = submitInfo with {
-			SignalSemaphoreCount = 1,
-			PSignalSemaphores = signalSemaphores,
-		};
-
-		vk!.ResetFences(device, 1, in so.inFlightFences[currentFrame]);
-
-		if (vk!.QueueSubmit(graphicsQueue, 1, in submitInfo
-			, so.inFlightFences[currentFrame]) != Result.Success) {
-			throw new Exception("failed to submit draw command buffer!");
-		}
-
-		var swapChains = stackalloc[] { sc.swapChain };
-		PresentInfoKHR presentInfo = new() {
-			SType = StructureType.PresentInfoKhr,
-
-			WaitSemaphoreCount = 1,
-			PWaitSemaphores = signalSemaphores,
-
-			SwapchainCount = 1,
-			PSwapchains = swapChains,
-
-			PImageIndices = &imageIndex
-		};
-
-		sc.khrSwapChain.QueuePresent(presentQueue, in presentInfo);
-
-		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-
-	}
-
-
-	//public T? get<T>() { return default; }
-	public object require(Type t) {
-		var c = components.Find(c => c.GetType() == t);
-		if (c == null) throw new Exception($"Component not found exception ({t})");
-		if (!c.initialized) throw new Exception($"Component not initialized ({t})");
-		return c;
-	}
-	public T require<T>() => (T)require(typeof(T));
-	public (T, T2) require<T, T2>() => (require<T>(), require<T2>());
-	public (T, T2, T3) require<T, T2, T3>() => (require<T>(), require<T2>(), require<T3>());
-	public (T, T2, T3, T4) require<T, T2, T3, T4>() => (require<T>(), require<T2>(), require<T3>(), require<T4>());
-	public (T, T2, T3, T4, T5) require<T, T2, T3, T4, T5>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>());
-	public (T, T2, T3, T4, T5, T6) require<T, T2, T3, T4, T5, T6>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>(), require<T6>());
-
-
-}
-
-public unsafe class VKVertexBuffer : VKComponent {
-	public Buffer buffer;
-	public DeviceMemory bufferMemory;
-	public Vertices verts = new() {
-			{(0.0f, -0.5f), (1.0f, 1.0f, 1.0f)},
-			{(0.5f, 0.5f), ( 0.0f, 1.0f, 0.0f)},
-			{(-0.5f, 0.5f), ( 0.0f, 0.0f, 1.0f)},
-	};
-
-	public override void init(VKSetup s) {
-		var bi = new BufferCreateInfo {
-			SType = StructureType.BufferCreateInfo,
-			Size = verts.size,
-			Usage = BufferUsageFlags.VertexBufferBit,
-			SharingMode = SharingMode.Exclusive,
-		};
-
-		s.vk!.CreateBuffer(s.device, in bi, null, out buffer)
-			.throwOnFail("Failed to create vertex buffer");
-
-		MemoryRequirements memReq;
-		s.vk!.GetBufferMemoryRequirements(s.device, buffer, &memReq);
-
-		MemoryAllocateInfo allocInfo = new() {
-			SType = StructureType.MemoryAllocateInfo,
-			AllocationSize = memReq.Size,
-			MemoryTypeIndex = FindMemoryType(s,
-				memReq.MemoryTypeBits, 
-				MemoryPropertyFlags.HostVisibleBit
-				| MemoryPropertyFlags.HostCoherentBit
-			)
-		};
-
-		s.vk.AllocateMemory(s.device, in allocInfo, null, out bufferMemory)
-			.throwOnFail("Failed to allocate memory for vertex buffer");
-		s.vk.BindBufferMemory(s.device, buffer, bufferMemory, 0);
-
-		void* data;
-		s.vk.MapMemory(s.device, bufferMemory, 0, bi.Size, 0, &data);
-		verts.AsSpan().CopyTo(new Span<Vertex>(data, verts.Count));
-		s.vk.UnmapMemory(s.device, bufferMemory);
-	}
-
-	private uint FindMemoryType(VKSetup s, uint typeFilter, MemoryPropertyFlags properties) {
-		s.vk!.GetPhysicalDeviceMemoryProperties
-			(s.physicalDevice, out var props);
-
-		for (int i = 0; i < props.MemoryTypeCount; i++) {
-			if ((typeFilter & (1 << i)) != 0
-				&& (props.MemoryTypes[i].PropertyFlags & properties) == properties) {
-				return (uint)i;
-			}
-		}
-
-		throw new Exception("failed to find suitable memory type!");
-	}
-
-	public override void clear(VKSetup s) {
-		s.vk!.DestroyBuffer(s.device, buffer, null);
-		s.vk.FreeMemory(s.device, bufferMemory, null);
-	}
 
 }
 
@@ -351,8 +136,8 @@ public unsafe class VKInstance : VKComponent {
 			s.instance = instance;
 		}
 
-		Marshal.FreeHGlobal((IntPtr)appInfo.PApplicationName);
-		Marshal.FreeHGlobal((IntPtr)appInfo.PEngineName);
+		Marshal.FreeHGlobal((nint)appInfo.PApplicationName);
+		Marshal.FreeHGlobal((nint)appInfo.PEngineName);
 		SilkMarshal.Free((nint)createInfo.PpEnabledExtensionNames);
 
 		if (s.EnableValidationLayers) {
@@ -369,7 +154,7 @@ public unsafe class VKInstance : VKComponent {
 		}
 
 		var availableLayerNames = availableLayers
-			.Select(layer => Marshal.PtrToStringAnsi((IntPtr)layer.LayerName))
+			.Select(layer => Marshal.PtrToStringAnsi((nint)layer.LayerName))
 			.ToHashSet();
 
 		return s.validationLayers.All(availableLayerNames.Contains);
@@ -462,7 +247,7 @@ public unsafe class VKDevicePicker : VKComponent {
 			s.vk!.EnumerateDeviceExtensionProperties(device, (byte*)null, ref extentionsCount, availableExtensionsPtr);
 		}
 
-		var availableExtensionNames = availableExtensions.Select(extension => Marshal.PtrToStringAnsi((IntPtr)extension.ExtensionName)).ToHashSet();
+		var availableExtensionNames = availableExtensions.Select(extension => Marshal.PtrToStringAnsi((nint)extension.ExtensionName)).ToHashSet();
 
 		return s.deviceExtensions.All(availableExtensionNames.Contains);
 	}
@@ -1152,7 +937,8 @@ public unsafe class VKCommandBuffers : VKComponent {
 	}
 
 	public override void clear(VKSetup s) {
-
+		//I didn't notice any clean up in original C# clear method.
+		//I assume this is all done at once with `vk.DestroyCommandPool`
 	}
 }
 
