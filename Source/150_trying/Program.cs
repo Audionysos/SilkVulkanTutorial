@@ -15,7 +15,7 @@ unsafe class HelloTriangleApplication {
 
 	public HelloTriangleApplication() {
 		InitWindow();
-		setup = new VKSetup(window!).init();
+		setup = new VKSetup(window!);
 		MainLoop();
 		setup.clear();
 	}
@@ -26,6 +26,9 @@ unsafe class HelloTriangleApplication {
 			Size = new Vector2D<int>(WIDTH, HEIGHT),
 			Title = "Vulkan"
 		};
+
+		_ = ShadersCompiler.compile
+			(@"shaders/shader.vert", @"shaders/vert.spv");
 
 		window = Window.Create(options);
 		window.Initialize();

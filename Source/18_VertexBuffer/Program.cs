@@ -864,7 +864,11 @@ unsafe class HelloTriangleApplication
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, MemoryPropertyFlags.MemoryPropertyHostVisibleBit | MemoryPropertyFlags.MemoryPropertyHostCoherentBit),
+            MemoryTypeIndex = FindMemoryType(
+                memRequirements.MemoryTypeBits
+                , MemoryPropertyFlags.MemoryPropertyHostVisibleBit
+                | MemoryPropertyFlags.MemoryPropertyHostCoherentBit
+            ),
         };
 
         fixed (DeviceMemory* vertexBufferMemoryPtr = &vertexBufferMemory)
@@ -954,7 +958,8 @@ unsafe class HelloTriangleApplication
 
             vk!.CmdBeginRenderPass(commandBuffers[i], &renderPassInfo, SubpassContents.Inline);
 
-                vk!.CmdBindPipeline(commandBuffers[i], PipelineBindPoint.Graphics, graphicsPipeline);
+                vk!.CmdBindPipeline(commandBuffers[i]
+                    , PipelineBindPoint.Graphics, graphicsPipeline);
 
                 var vertexBuffers = new Buffer[] { vertexBuffer };
                 var offsets = new ulong[] { 0 };
@@ -962,7 +967,8 @@ unsafe class HelloTriangleApplication
                 fixed (ulong* offsetsPtr = offsets)
                 fixed (Buffer* vertexBuffersPtr = vertexBuffers)
                 {
-                    vk!.CmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffersPtr, offsetsPtr);
+                    vk!.CmdBindVertexBuffers
+                        (commandBuffers[i], 0, 1, vertexBuffersPtr, offsetsPtr);
                 }
 
                 vk!.CmdDraw(commandBuffers[i], (uint)vertices.Length, 1, 0, 0);

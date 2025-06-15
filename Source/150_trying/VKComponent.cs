@@ -1,15 +1,24 @@
-﻿// Ignore Spelling: Utils Indices
+﻿// Ignore Spelling: Utils Indices Vertices verts khr
 
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Device = Silk.NET.Vulkan.Device;
+using Queue = Silk.NET.Vulkan.Queue;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Core;
 using Silk.NET.Windowing;
 using System.Runtime.CompilerServices;
+using Silk.NET.Maths;
+using System.Collections;
+using System.Diagnostics;
+using _150_trying.geom;
+using Silk.NET.OpenAL;
+using Buffer = Silk.NET.Vulkan.Buffer;
+using _150_trying.utils;
+using System.Diagnostics.CodeAnalysis;
 
 namespace _150_trying;
 
@@ -26,7 +35,7 @@ public unsafe class VKSetup {
 
 	public IWindow window { get; }
 	public Instance instance { get; set; }
-	public Vk? vk { get; set; }
+	public Vk vk { get; set; }
 
 	public readonly string[] validationLayers = [
 		"VK_LAYER_KHRONOS_validation"
@@ -36,7 +45,7 @@ public unsafe class VKSetup {
 	];
 
 	public bool EnableValidationLayers { get; set; } = true;
-	
+
 	public PhysicalDevice physicalDevice;
 	public Device device;
 	public Queue graphicsQueue;
@@ -46,11 +55,13 @@ public unsafe class VKSetup {
 
 	public VKSetup(IWindow window) {
 		this.window = window;
+		init();
 	}
 
-	public VKSetup init() {
+	[MemberNotNull("vk")]
+	private VKSetup init() {
 		components = [
-			new VKInstance(),
+			new VKInstance(), //this should set `vk`
 			new VKDebugMessenger(),
 			new VKSurface(),
 			new VKDevicePicker(),
@@ -60,19 +71,22 @@ public unsafe class VKSetup {
 			new VKRenderPass(),
 			new VKGraphicsPipeline(),
 			new VKFrameBuffer(),
+			new VKVertexBuffer(),
 			new VKCommandPool(),
 			new VKCommandBuffers(),
 			new VKSyncObjects(),
 		];
 		foreach (var c in components) {
 			c.init(this);
+			if (vk == null) throw new Exception("Failed to initialize.");
 			c.initialized = true;
 		}
+		if (vk == null) throw new Exception("Failed to initialize.");
 		return this;
 	}
 
 	public void clear() {
-		for (int i = components.Count-1; i >= 0; i--) {
+		for (int i = components.Count - 1; i >= 0; i--) {
 			var c = components[i];
 			c.clear(this);
 		}
@@ -98,11 +112,11 @@ public unsafe class VKSetup {
 			SType = StructureType.SubmitInfo,
 		};
 
-		var waitSemaphores = stackalloc[] { 
+		var waitSemaphores = stackalloc[] {
 			so.imageAvailableSemaphores[currentFrame] };
 		var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
 
-		var buffer = cb.commandBuffers![imageIndex];
+		var buffer = cb.cmdBuffs![imageIndex];
 
 		submitInfo = submitInfo with {
 			WaitSemaphoreCount = 1,
@@ -139,7 +153,7 @@ public unsafe class VKSetup {
 			PImageIndices = &imageIndex
 		};
 
-		sc.khrSwapChain.QueuePresent(presentQueue, presentInfo);
+		sc.khrSwapChain.QueuePresent(presentQueue, in presentInfo);
 
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
@@ -158,11 +172,76 @@ public unsafe class VKSetup {
 	public (T, T2, T3) require<T, T2, T3>() => (require<T>(), require<T2>(), require<T3>());
 	public (T, T2, T3, T4) require<T, T2, T3, T4>() => (require<T>(), require<T2>(), require<T3>(), require<T4>());
 	public (T, T2, T3, T4, T5) require<T, T2, T3, T4, T5>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>());
+	public (T, T2, T3, T4, T5, T6) require<T, T2, T3, T4, T5, T6>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>(), require<T6>());
 
 
 }
 
+public unsafe class VKVertexBuffer : VKComponent {
+	public Buffer buffer;
+	public DeviceMemory bufferMemory;
+	public Vertices verts = new() {
+			{(0.0f, -0.5f), (1.0f, 1.0f, 1.0f)},
+			{(0.5f, 0.5f), ( 0.0f, 1.0f, 0.0f)},
+			{(-0.5f, 0.5f), ( 0.0f, 0.0f, 1.0f)},
+	};
 
+	public override void init(VKSetup s) {
+		var bi = new BufferCreateInfo {
+			SType = StructureType.BufferCreateInfo,
+			Size = verts.size,
+			Usage = BufferUsageFlags.VertexBufferBit,
+			SharingMode = SharingMode.Exclusive,
+		};
+
+		s.vk!.CreateBuffer(s.device, in bi, null, out buffer)
+			.throwOnFail("Failed to create vertex buffer");
+
+		MemoryRequirements memReq;
+		s.vk!.GetBufferMemoryRequirements(s.device, buffer, &memReq);
+
+		MemoryAllocateInfo allocInfo = new() {
+			SType = StructureType.MemoryAllocateInfo,
+			AllocationSize = memReq.Size,
+			MemoryTypeIndex = FindMemoryType(s,
+				memReq.MemoryTypeBits, 
+				MemoryPropertyFlags.HostVisibleBit
+				| MemoryPropertyFlags.HostCoherentBit
+			)
+		};
+
+		s.vk.AllocateMemory(s.device, in allocInfo, null, out bufferMemory)
+			.throwOnFail("Failed to allocate memory for vertex buffer");
+		s.vk.BindBufferMemory(s.device, buffer, bufferMemory, 0);
+
+		void* data;
+		s.vk.MapMemory(s.device, bufferMemory, 0, bi.Size, 0, &data);
+		verts.AsSpan().CopyTo(new Span<Vertex>(data, verts.Count));
+		s.vk.UnmapMemory(s.device, bufferMemory);
+	}
+
+	private uint FindMemoryType(VKSetup s, uint typeFilter, MemoryPropertyFlags properties) {
+		s.vk!.GetPhysicalDeviceMemoryProperties
+			(s.physicalDevice, out var props);
+
+		for (int i = 0; i < props.MemoryTypeCount; i++) {
+			if ((typeFilter & (1 << i)) != 0
+				&& (props.MemoryTypes[i].PropertyFlags & properties) == properties) {
+				return (uint)i;
+			}
+		}
+
+		throw new Exception("failed to find suitable memory type!");
+	}
+
+	public override void clear(VKSetup s) {
+		s.vk!.DestroyBuffer(s.device, buffer, null);
+		s.vk.FreeMemory(s.device, bufferMemory, null);
+	}
+
+}
+
+//--------------------------------
 
 public unsafe class VKDebugMessenger : VKComponent {
 	public ExtDebugUtils? debugUtils;
@@ -196,7 +275,7 @@ public unsafe class VKDebugMessenger : VKComponent {
 	}
 
 	private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT messageSeverity, DebugUtilsMessageTypeFlagsEXT messageTypes, DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
-		Console.WriteLine($"validation layer:" + Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage));
+		Debug.WriteLine($"Vulkan:" + Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage));
 		return Vk.False;
 	}
 
@@ -224,7 +303,7 @@ public unsafe class VKInstance : VKComponent {
 			DebugCallback;
 	}
 	private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT messageSeverity, DebugUtilsMessageTypeFlagsEXT messageTypes, DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
-		Console.WriteLine($"validation layer:" + Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage));
+		Debug.WriteLine($"Vulkan:" + Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage));
 		return Vk.False;
 	}
 
@@ -503,7 +582,7 @@ public unsafe class VKLogicalDevice : VKComponent {
 			PEnabledFeatures = &deviceFeatures,
 
 			EnabledExtensionCount = (uint)s.deviceExtensions.Length,
-			PpEnabledExtensionNames = 
+			PpEnabledExtensionNames =
 				(byte**)SilkMarshal.StringArrayToPtr(s.deviceExtensions)
 		};
 
@@ -533,7 +612,7 @@ public unsafe class VKLogicalDevice : VKComponent {
 	}
 
 	public override void clear(VKSetup s) {
-		
+
 	}
 }
 
@@ -570,7 +649,7 @@ public unsafe class VKSwapChain : VKComponent {
 		};
 
 		var indices = dp.FindQueueFamilies(s, s.physicalDevice);
-		var queueFamilyIndices = stackalloc[] { 
+		var queueFamilyIndices = stackalloc[] {
 			  indices.GraphicsFamily!.Value
 			, indices.PresentFamily!.Value };
 
@@ -598,7 +677,7 @@ public unsafe class VKSwapChain : VKComponent {
 			throw new NotSupportedException("VK_KHR_swapchain extension not found.");
 		}
 
-		if (khrSwapChain!.CreateSwapchain(s.device, creatInfo, null
+		if (khrSwapChain!.CreateSwapchain(s.device, in creatInfo, null
 			, out swapChain) != Result.Success) {
 			throw new Exception("failed to create swap chain!");
 		}
@@ -658,7 +737,7 @@ public unsafe class VKSwapChain : VKComponent {
 
 public unsafe class VKImageViews : VKComponent {
 	public ImageView[]? swapChainImageViews;
-	
+
 	public override void init(VKSetup s) {
 		var sc = s.require<VKSwapChain>();
 		swapChainImageViews = new ImageView[sc.swapChainImages!.Length];
@@ -789,111 +868,117 @@ public unsafe class VKGraphicsPipeline : VKComponent {
 			fragShaderStageInfo
 		};
 
-		PipelineVertexInputStateCreateInfo vertexInputInfo = new() {
-			SType = StructureType.PipelineVertexInputStateCreateInfo,
-			VertexBindingDescriptionCount = 0,
-			VertexAttributeDescriptionCount = 0,
-		};
+		var bindingDesc = Vertex.getBindingDescription();
+		var attributeDesc = Vertex.getAttributeDescriptions();
+		fixed (VertexInputAttributeDescription* attDescP = attributeDesc) {
 
-		PipelineInputAssemblyStateCreateInfo inputAssembly = new() {
-			SType = StructureType.PipelineInputAssemblyStateCreateInfo,
-			Topology = PrimitiveTopology.TriangleList,
-			PrimitiveRestartEnable = false,
-		};
+			PipelineVertexInputStateCreateInfo vertexInputInfo = new() {
+				SType = StructureType.PipelineVertexInputStateCreateInfo,
+				VertexBindingDescriptionCount = 1,
+				VertexAttributeDescriptionCount = (uint)attributeDesc.Length,
+				PVertexBindingDescriptions = &bindingDesc,
+				PVertexAttributeDescriptions = attDescP,
+			};
 
-		Viewport viewport = new() {
-			X = 0,
-			Y = 0,
-			Width = sc.swapChainExtent.Width,
-			Height = sc.swapChainExtent.Height,
-			MinDepth = 0,
-			MaxDepth = 1,
-		};
+			PipelineInputAssemblyStateCreateInfo inputAssembly = new() {
+				SType = StructureType.PipelineInputAssemblyStateCreateInfo,
+				Topology = PrimitiveTopology.TriangleList,
+				PrimitiveRestartEnable = false,
+			};
 
-		Rect2D scissor = new() {
-			Offset = { X = 0, Y = 0 },
-			Extent = sc.swapChainExtent,
-		};
+			Viewport viewport = new() {
+				X = 0,
+				Y = 0,
+				Width = sc.swapChainExtent.Width,
+				Height = sc.swapChainExtent.Height,
+				MinDepth = 0,
+				MaxDepth = 1,
+			};
 
-		PipelineViewportStateCreateInfo viewportState = new() {
-			SType = StructureType.PipelineViewportStateCreateInfo,
-			ViewportCount = 1,
-			PViewports = &viewport,
-			ScissorCount = 1,
-			PScissors = &scissor,
-		};
+			Rect2D scissor = new() {
+				Offset = { X = 0, Y = 0 },
+				Extent = sc.swapChainExtent,
+			};
 
-		PipelineRasterizationStateCreateInfo rasterizer = new() {
-			SType = StructureType.PipelineRasterizationStateCreateInfo,
-			DepthClampEnable = false,
-			RasterizerDiscardEnable = false,
-			PolygonMode = PolygonMode.Fill,
-			LineWidth = 1,
-			CullMode = CullModeFlags.BackBit,
-			FrontFace = FrontFace.Clockwise,
-			DepthBiasEnable = false,
-		};
+			PipelineViewportStateCreateInfo viewportState = new() {
+				SType = StructureType.PipelineViewportStateCreateInfo,
+				ViewportCount = 1,
+				PViewports = &viewport,
+				ScissorCount = 1,
+				PScissors = &scissor,
+			};
 
-		PipelineMultisampleStateCreateInfo multisampling = new() {
-			SType = StructureType.PipelineMultisampleStateCreateInfo,
-			SampleShadingEnable = false,
-			RasterizationSamples = SampleCountFlags.Count1Bit,
-		};
+			PipelineRasterizationStateCreateInfo rasterizer = new() {
+				SType = StructureType.PipelineRasterizationStateCreateInfo,
+				DepthClampEnable = false,
+				RasterizerDiscardEnable = false,
+				PolygonMode = PolygonMode.Fill,
+				LineWidth = 1,
+				CullMode = CullModeFlags.BackBit,
+				FrontFace = FrontFace.Clockwise,
+				DepthBiasEnable = false,
+			};
 
-		PipelineColorBlendAttachmentState colorBlendAttachment = new() {
-			ColorWriteMask = ColorComponentFlags.RBit
-				| ColorComponentFlags.GBit | ColorComponentFlags.BBit
-				| ColorComponentFlags.ABit,
-			BlendEnable = false,
-		};
+			PipelineMultisampleStateCreateInfo multisampling = new() {
+				SType = StructureType.PipelineMultisampleStateCreateInfo,
+				SampleShadingEnable = false,
+				RasterizationSamples = SampleCountFlags.Count1Bit,
+			};
 
-		PipelineColorBlendStateCreateInfo colorBlending = new() {
-			SType = StructureType.PipelineColorBlendStateCreateInfo,
-			LogicOpEnable = false,
-			LogicOp = LogicOp.Copy,
-			AttachmentCount = 1,
-			PAttachments = &colorBlendAttachment,
-		};
+			PipelineColorBlendAttachmentState colorBlendAttachment = new() {
+				ColorWriteMask = ColorComponentFlags.RBit
+					| ColorComponentFlags.GBit | ColorComponentFlags.BBit
+					| ColorComponentFlags.ABit,
+				BlendEnable = false,
+			};
 
-		colorBlending.BlendConstants[0] = 0;
-		colorBlending.BlendConstants[1] = 0;
-		colorBlending.BlendConstants[2] = 0;
-		colorBlending.BlendConstants[3] = 0;
+			PipelineColorBlendStateCreateInfo colorBlending = new() {
+				SType = StructureType.PipelineColorBlendStateCreateInfo,
+				LogicOpEnable = false,
+				LogicOp = LogicOp.Copy,
+				AttachmentCount = 1,
+				PAttachments = &colorBlendAttachment,
+			};
 
-		PipelineLayoutCreateInfo pipelineLayoutInfo = new() {
-			SType = StructureType.PipelineLayoutCreateInfo,
-			SetLayoutCount = 0,
-			PushConstantRangeCount = 0,
-		};
+			colorBlending.BlendConstants[0] = 0;
+			colorBlending.BlendConstants[1] = 0;
+			colorBlending.BlendConstants[2] = 0;
+			colorBlending.BlendConstants[3] = 0;
 
-		if (s.vk!.CreatePipelineLayout
-			(s.device, in pipelineLayoutInfo, null, out pipelineLayout)
-			!= Result.Success) {
-			throw new Exception("failed to create pipeline layout!");
+			PipelineLayoutCreateInfo pipelineLayoutInfo = new() {
+				SType = StructureType.PipelineLayoutCreateInfo,
+				SetLayoutCount = 0,
+				PushConstantRangeCount = 0,
+			};
+
+			if (s.vk!.CreatePipelineLayout
+				(s.device, in pipelineLayoutInfo, null, out pipelineLayout)
+				!= Result.Success) {
+				throw new Exception("failed to create pipeline layout!");
+			}
+
+			GraphicsPipelineCreateInfo pipelineInfo = new() {
+				SType = StructureType.GraphicsPipelineCreateInfo,
+				StageCount = 2,
+				PStages = shaderStages,
+				PVertexInputState = &vertexInputInfo,
+				PInputAssemblyState = &inputAssembly,
+				PViewportState = &viewportState,
+				PRasterizationState = &rasterizer,
+				PMultisampleState = &multisampling,
+				PColorBlendState = &colorBlending,
+				Layout = pipelineLayout,
+				RenderPass = rp.renderPass,
+				Subpass = 0,
+				BasePipelineHandle = default
+			};
+
+			if (s.vk!.CreateGraphicsPipelines
+				(s.device, default, 1, in pipelineInfo, null, out graphicsPipeline)
+				!= Result.Success) {
+				throw new Exception("failed to create graphics pipeline!");
+			}
 		}
-
-		GraphicsPipelineCreateInfo pipelineInfo = new() {
-			SType = StructureType.GraphicsPipelineCreateInfo,
-			StageCount = 2,
-			PStages = shaderStages,
-			PVertexInputState = &vertexInputInfo,
-			PInputAssemblyState = &inputAssembly,
-			PViewportState = &viewportState,
-			PRasterizationState = &rasterizer,
-			PMultisampleState = &multisampling,
-			PColorBlendState = &colorBlending,
-			Layout = pipelineLayout,
-			RenderPass = rp.renderPass,
-			Subpass = 0,
-			BasePipelineHandle = default
-		};
-
-		if (s.vk!.CreateGraphicsPipelines
-			(s.device, default, 1, in pipelineInfo, null, out graphicsPipeline)
-			!= Result.Success) {
-			throw new Exception("failed to create graphics pipeline!");
-		}
-
 
 		s.vk!.DestroyShaderModule(s.device, fragShaderModule, null);
 		s.vk!.DestroyShaderModule(s.device, vertShaderModule, null);
@@ -931,11 +1016,11 @@ public unsafe class VKGraphicsPipeline : VKComponent {
 }
 
 public unsafe class VKFrameBuffer : VKComponent {
-	public Framebuffer[]? swapChainFramebuffers;
+	public Framebuffer[]? swapChainFrameBuffers;
 
 	public override void init(VKSetup s) {
 		var (sc, rp, iv) = s.require<VKSwapChain, VKRenderPass, VKImageViews>();
-		swapChainFramebuffers = new Framebuffer[iv.swapChainImageViews!.Length];
+		swapChainFrameBuffers = new Framebuffer[iv.swapChainImageViews!.Length];
 
 		for (int i = 0; i < iv.swapChainImageViews.Length; i++) {
 			var attachment = iv.swapChainImageViews[i];
@@ -951,14 +1036,14 @@ public unsafe class VKFrameBuffer : VKComponent {
 			};
 
 			if (s.vk!.CreateFramebuffer(s.device, in framebufferInfo
-				, null, out swapChainFramebuffers[i]) != Result.Success) {
+				, null, out swapChainFrameBuffers[i]) != Result.Success) {
 				throw new Exception("failed to create frame buffer!");
 			}
 		}
 	}
 
 	public override void clear(VKSetup s) {
-		foreach (var framebuffer in swapChainFramebuffers!) {
+		foreach (var framebuffer in swapChainFrameBuffers!) {
 			s.vk!.DestroyFramebuffer(s.device, framebuffer, null);
 		}
 	}
@@ -969,7 +1054,7 @@ public unsafe class VKCommandPool : VKComponent {
 
 	public override void init(VKSetup s) {
 		var (fb, dp) = s.require<VKFrameBuffer, VKDevicePicker>();
-		QueueFamilyIndices queueFamilyIndices = 
+		QueueFamilyIndices queueFamilyIndices =
 			dp.FindQueueFamilies(s, s.physicalDevice);
 
 		CommandPoolCreateInfo poolInfo = new() {
@@ -990,34 +1075,33 @@ public unsafe class VKCommandPool : VKComponent {
 }
 
 public unsafe class VKCommandBuffers : VKComponent {
-	public CommandBuffer[]? commandBuffers;
+	public CommandBuffer[]? cmdBuffs;
 
 	public override void init(VKSetup s) {
-		var (cp, fb, rp, sc, pl) = s.require<VKCommandPool, VKFrameBuffer
-			, VKRenderPass, VKSwapChain, VKGraphicsPipeline>();
-		commandBuffers = new CommandBuffer[fb.swapChainFramebuffers!.Length];
+		var (cp, fb, rp, sc, pl, vb) = s.require<VKCommandPool, VKFrameBuffer
+			, VKRenderPass, VKSwapChain, VKGraphicsPipeline, VKVertexBuffer>();
+		cmdBuffs = new CommandBuffer[fb.swapChainFrameBuffers!.Length];
 
 		CommandBufferAllocateInfo allocInfo = new() {
 			SType = StructureType.CommandBufferAllocateInfo,
 			CommandPool = cp.commandPool,
 			Level = CommandBufferLevel.Primary,
-			CommandBufferCount = (uint)commandBuffers.Length,
+			CommandBufferCount = (uint)cmdBuffs.Length,
 		};
 
-		fixed (CommandBuffer* commandBuffersPtr = commandBuffers) {
-			if (s.vk!.AllocateCommandBuffers(s.device, in allocInfo
-				, commandBuffersPtr) != Result.Success) {
-				throw new Exception("failed to allocate command buffers!");
-			}
+		fixed (CommandBuffer* commandBuffersPtr = cmdBuffs) {
+			s.vk.AllocateCommandBuffers(s.device
+				, in allocInfo, commandBuffersPtr)
+				.throwOnFail("failed to allocate command buffers!");
 		}
 
 
-		for (int i = 0; i < commandBuffers.Length; i++) {
+		for (int i = 0; i < cmdBuffs.Length; i++) {
 			CommandBufferBeginInfo beginInfo = new() {
 				SType = StructureType.CommandBufferBeginInfo,
 			};
 
-			if (s.vk!.BeginCommandBuffer(commandBuffers[i], in beginInfo)
+			if (s.vk!.BeginCommandBuffer(cmdBuffs[i], in beginInfo)
 				!= Result.Success) {
 				throw new Exception("failed to begin recording command buffer!");
 			}
@@ -1025,7 +1109,7 @@ public unsafe class VKCommandBuffers : VKComponent {
 			RenderPassBeginInfo renderPassInfo = new() {
 				SType = StructureType.RenderPassBeginInfo,
 				RenderPass = rp.renderPass,
-				Framebuffer = fb.swapChainFramebuffers[i],
+				Framebuffer = fb.swapChainFrameBuffers[i],
 				RenderArea =
 				{
 					Offset = { X = 0, Y = 0 },
@@ -1034,24 +1118,33 @@ public unsafe class VKCommandBuffers : VKComponent {
 			};
 
 			ClearValue clearColor = new() {
-				Color = new() { Float32_0 = 0, Float32_1 = 0
-								, Float32_2 = 0, Float32_3 = 1 },
+				Color = new() {
+					Float32_0 = 0, Float32_1 = 0
+								, Float32_2 = 0, Float32_3 = 1
+				},
 			};
 
 			renderPassInfo.ClearValueCount = 1;
 			renderPassInfo.PClearValues = &clearColor;
 
-			s.vk!.CmdBeginRenderPass(commandBuffers[i], &renderPassInfo
+			s.vk!.CmdBeginRenderPass(cmdBuffs[i], &renderPassInfo
 				, SubpassContents.Inline);
 
-			s.vk!.CmdBindPipeline(commandBuffers[i]
+			s.vk!.CmdBindPipeline(cmdBuffs[i]
 				, PipelineBindPoint.Graphics, pl.graphicsPipeline);
 
-			s.vk!.CmdDraw(commandBuffers[i], 3, 1, 0, 0);
+			
+			Buffer[] vertexBuffers = [vb.buffer];
+			var offsets = new ulong[] { 0 };
+			s.vk.CmdBindVertexBuffers
+				(cmdBuffs[i], 0, 1, vertexBuffers, offsets);
 
-			s.vk!.CmdEndRenderPass(commandBuffers[i]);
+			s.vk!.CmdDraw(cmdBuffs[i], 
+				(uint)vb.verts.Count, 1, 0, 0);
 
-			if (s.vk!.EndCommandBuffer(commandBuffers[i]) != Result.Success) {
+			s.vk!.CmdEndRenderPass(cmdBuffs[i]);
+
+			if (s.vk!.EndCommandBuffer(cmdBuffs[i]) != Result.Success) {
 				throw new Exception("failed to record command buffer!");
 			}
 
@@ -1059,7 +1152,7 @@ public unsafe class VKCommandBuffers : VKComponent {
 	}
 
 	public override void clear(VKSetup s) {
-		
+
 	}
 }
 
@@ -1123,3 +1216,5 @@ public struct SwapChainSupportDetails {
 	public SurfaceFormatKHR[] Formats;
 	public PresentModeKHR[] PresentModes;
 }
+
+
