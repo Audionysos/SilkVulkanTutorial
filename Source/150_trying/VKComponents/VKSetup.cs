@@ -50,8 +50,8 @@ public unsafe class VKSetup {
 			new VKRenderPass(),
 			new VKGraphicsPipeline(),
 			new VKFrameBuffer(),
-			new VKVertexBuffer(),
 			new VKCommandPool(),
+			new VKVertexBuffer(),
 			new VKCommandBuffers(),
 			new VKSyncObjects(),
 		];
