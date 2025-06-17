@@ -1,4 +1,4 @@
-﻿// Ignore Spelling: Utils Indices Vertices verts khr
+﻿// Ignore Spelling: Utils Indices Vertices verts khr ubo
 
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
@@ -8,14 +8,11 @@ using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Core;
 using System.Runtime.CompilerServices;
-using Silk.NET.Maths;
-using System.Collections;
 using System.Diagnostics;
-using _150_trying.geom;
-using Silk.NET.OpenAL;
-using Buffer = Silk.NET.Vulkan.Buffer;
 using _150_trying.utils;
 using System;
+using Silk.NET.OpenAL;
+using _150_trying.geom;
 
 namespace _150_trying.VKComponents;
 
@@ -27,7 +24,84 @@ public abstract class VKComponent {
 
 }
 
-//--------------------------------
+/// <summary>https://vulkan-tutorial.com/en/Uniform_buffers/Descriptor_pool_and_sets</summary>
+public unsafe class VKDescriptorPool : VKComponent {
+	DescriptorPool descriptorPool;
+	public DescriptorSet[] descriptorSets = new DescriptorSet[VKSetup.MAX_FRAMES_IN_FLIGHT];
+
+	public override void init(VKSetup s) {
+		DescriptorPoolSize poolSize = new() {
+			Type = DescriptorType.UniformBuffer,
+			DescriptorCount = VKSetup.MAX_FRAMES_IN_FLIGHT
+		};
+
+		DescriptorPoolCreateInfo poolInfo = new (){ 
+			SType = StructureType.DescriptorPoolCreateInfo,
+			PoolSizeCount = 1,
+			PPoolSizes = &poolSize,
+			MaxSets = VKSetup.MAX_FRAMES_IN_FLIGHT,
+		};
+
+		s.vk.CreateDescriptorPool(s.device
+			, in poolInfo, null, out descriptorPool)
+			.throwOnFail("Failed to create descriptor pool.");
+
+		createDescriptorSets(s);
+	}
+
+	private void createDescriptorSets(VKSetup s) {
+		var (sl, ub) = s.require<VKDescriptorSetLayout, VKUniformBuffers>();
+		var layouts = new DescriptorSetLayout[VKSetup.MAX_FRAMES_IN_FLIGHT];
+		Array.Fill(layouts, sl.descriptorSetLayout);
+
+		
+		fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+		fixed (DescriptorSetLayout* layoutsPtr = layouts) {
+			DescriptorSetAllocateInfo allocInfo = new() {
+				SType = StructureType.DescriptorSetAllocateInfo,
+				DescriptorPool = descriptorPool,
+				DescriptorSetCount = VKSetup.MAX_FRAMES_IN_FLIGHT,
+				PSetLayouts = layoutsPtr,
+			};
+
+			s.vk.AllocateDescriptorSets(s.device,
+				in allocInfo, descriptorSetsPtr)
+				.throwOnFail("Failed to allocate descriptor sets.");
+
+		}
+
+		for (var i = 0; i < VKSetup.MAX_FRAMES_IN_FLIGHT; i++) {
+			DescriptorBufferInfo bufferInfo = new() {
+				Buffer = ub.all[i].buffer,
+				Offset = 0,
+				Range = (ulong)Marshal.SizeOf<UniformBufferObject>(),
+			};
+
+			WriteDescriptorSet descWrite = new() { 
+				SType = StructureType.WriteDescriptorSet,
+				DstSet = descriptorSets[i],
+				DstBinding = 0,
+				DstArrayElement = 0,
+				DescriptorType = DescriptorType.UniformBuffer,
+				DescriptorCount = 1,
+				PBufferInfo = &bufferInfo,
+				PImageInfo = null,
+				PTexelBufferView = null,
+			};
+
+			s.vk.UpdateDescriptorSets(s.device,
+				1, in descWrite, 0, null);
+		}
+	}
+
+	public override void clear(VKSetup s) {
+		s.vk.DestroyDescriptorPool(s.device, descriptorPool, null);
+	}
+
+}
+
+//--------^^^^^^^^^^^^^^^^^^^^^^^^^^
+//--------vvvvvvvvvvvvvvvvvvvvvvvvv
 
 public unsafe class VKDebugMessenger : VKComponent {
 	public ExtDebugUtils? debugUtils;
@@ -623,184 +697,6 @@ public unsafe class VKRenderPass : VKComponent {
 
 }
 
-public unsafe class VKGraphicsPipeline : VKComponent {
-	public PipelineLayout pipelineLayout;
-	public Pipeline graphicsPipeline;
-
-	public override void init(VKSetup s) {
-		var (sc, rp) = s.require<VKSwapChain, VKRenderPass>();
-		var vertShaderCode = File.ReadAllBytes("shaders/vert.spv");
-		var fragShaderCode = File.ReadAllBytes("shaders/frag.spv");
-
-		var vertShaderModule = CreateShaderModule(s, vertShaderCode);
-		var fragShaderModule = CreateShaderModule(s, fragShaderCode);
-
-		PipelineShaderStageCreateInfo vertShaderStageInfo = new() {
-			SType = StructureType.PipelineShaderStageCreateInfo,
-			Stage = ShaderStageFlags.VertexBit,
-			Module = vertShaderModule,
-			PName = (byte*)SilkMarshal.StringToPtr("main")
-		};
-
-		PipelineShaderStageCreateInfo fragShaderStageInfo = new() {
-			SType = StructureType.PipelineShaderStageCreateInfo,
-			Stage = ShaderStageFlags.FragmentBit,
-			Module = fragShaderModule,
-			PName = (byte*)SilkMarshal.StringToPtr("main")
-		};
-
-		var shaderStages = stackalloc[] {
-			vertShaderStageInfo,
-			fragShaderStageInfo
-		};
-
-		var bindingDesc = Vertex.getBindingDescription();
-		var attributeDesc = Vertex.getAttributeDescriptions();
-		fixed (VertexInputAttributeDescription* attDescP = attributeDesc) {
-
-			PipelineVertexInputStateCreateInfo vertexInputInfo = new() {
-				SType = StructureType.PipelineVertexInputStateCreateInfo,
-				VertexBindingDescriptionCount = 1,
-				VertexAttributeDescriptionCount = (uint)attributeDesc.Length,
-				PVertexBindingDescriptions = &bindingDesc,
-				PVertexAttributeDescriptions = attDescP,
-			};
-
-			PipelineInputAssemblyStateCreateInfo inputAssembly = new() {
-				SType = StructureType.PipelineInputAssemblyStateCreateInfo,
-				Topology = PrimitiveTopology.TriangleList,
-				PrimitiveRestartEnable = false,
-			};
-
-			Viewport viewport = new() {
-				X = 0,
-				Y = 0,
-				Width = sc.swapChainExtent.Width,
-				Height = sc.swapChainExtent.Height,
-				MinDepth = 0,
-				MaxDepth = 1,
-			};
-
-			Rect2D scissor = new() {
-				Offset = { X = 0, Y = 0 },
-				Extent = sc.swapChainExtent,
-			};
-
-			PipelineViewportStateCreateInfo viewportState = new() {
-				SType = StructureType.PipelineViewportStateCreateInfo,
-				ViewportCount = 1,
-				PViewports = &viewport,
-				ScissorCount = 1,
-				PScissors = &scissor,
-			};
-
-			PipelineRasterizationStateCreateInfo rasterizer = new() {
-				SType = StructureType.PipelineRasterizationStateCreateInfo,
-				DepthClampEnable = false,
-				RasterizerDiscardEnable = false,
-				PolygonMode = PolygonMode.Fill,
-				LineWidth = 1,
-				CullMode = CullModeFlags.BackBit,
-				FrontFace = FrontFace.Clockwise,
-				DepthBiasEnable = false,
-			};
-
-			PipelineMultisampleStateCreateInfo multisampling = new() {
-				SType = StructureType.PipelineMultisampleStateCreateInfo,
-				SampleShadingEnable = false,
-				RasterizationSamples = SampleCountFlags.Count1Bit,
-			};
-
-			PipelineColorBlendAttachmentState colorBlendAttachment = new() {
-				ColorWriteMask = ColorComponentFlags.RBit
-					| ColorComponentFlags.GBit | ColorComponentFlags.BBit
-					| ColorComponentFlags.ABit,
-				BlendEnable = false,
-			};
-
-			PipelineColorBlendStateCreateInfo colorBlending = new() {
-				SType = StructureType.PipelineColorBlendStateCreateInfo,
-				LogicOpEnable = false,
-				LogicOp = LogicOp.Copy,
-				AttachmentCount = 1,
-				PAttachments = &colorBlendAttachment,
-			};
-
-			colorBlending.BlendConstants[0] = 0;
-			colorBlending.BlendConstants[1] = 0;
-			colorBlending.BlendConstants[2] = 0;
-			colorBlending.BlendConstants[3] = 0;
-
-			PipelineLayoutCreateInfo pipelineLayoutInfo = new() {
-				SType = StructureType.PipelineLayoutCreateInfo,
-				SetLayoutCount = 0,
-				PushConstantRangeCount = 0,
-			};
-
-			if (s.vk!.CreatePipelineLayout
-				(s.device, in pipelineLayoutInfo, null, out pipelineLayout)
-				!= Result.Success) {
-				throw new Exception("failed to create pipeline layout!");
-			}
-
-			GraphicsPipelineCreateInfo pipelineInfo = new() {
-				SType = StructureType.GraphicsPipelineCreateInfo,
-				StageCount = 2,
-				PStages = shaderStages,
-				PVertexInputState = &vertexInputInfo,
-				PInputAssemblyState = &inputAssembly,
-				PViewportState = &viewportState,
-				PRasterizationState = &rasterizer,
-				PMultisampleState = &multisampling,
-				PColorBlendState = &colorBlending,
-				Layout = pipelineLayout,
-				RenderPass = rp.renderPass,
-				Subpass = 0,
-				BasePipelineHandle = default
-			};
-
-			if (s.vk!.CreateGraphicsPipelines
-				(s.device, default, 1, in pipelineInfo, null, out graphicsPipeline)
-				!= Result.Success) {
-				throw new Exception("failed to create graphics pipeline!");
-			}
-		}
-
-		s.vk!.DestroyShaderModule(s.device, fragShaderModule, null);
-		s.vk!.DestroyShaderModule(s.device, vertShaderModule, null);
-
-		SilkMarshal.Free((nint)vertShaderStageInfo.PName);
-		SilkMarshal.Free((nint)fragShaderStageInfo.PName);
-	}
-
-	private ShaderModule CreateShaderModule(VKSetup s, byte[] code) {
-		ShaderModuleCreateInfo createInfo = new() {
-			SType = StructureType.ShaderModuleCreateInfo,
-			CodeSize = (nuint)code.Length,
-		};
-
-		ShaderModule shaderModule;
-
-		fixed (byte* codePtr = code) {
-			createInfo.PCode = (uint*)codePtr;
-
-			if (s.vk!.CreateShaderModule
-				(s.device, in createInfo, null, out shaderModule)
-				!= Result.Success) {
-				throw new Exception("Failed to create shader module");
-			}
-		}
-
-		return shaderModule;
-
-	}
-
-	public override void clear(VKSetup s) {
-		s.vk!.DestroyPipeline(s.device, graphicsPipeline, null);
-		s.vk!.DestroyPipelineLayout(s.device, pipelineLayout, null);
-	}
-}
-
 public unsafe class VKFrameBuffer : VKComponent {
 	public Framebuffer[]? swapChainFrameBuffers;
 
@@ -857,94 +753,6 @@ public unsafe class VKCommandPool : VKComponent {
 
 	public override void clear(VKSetup s) {
 		s.vk!.DestroyCommandPool(s.device, commandPool, null);
-	}
-}
-
-public unsafe class VKCommandBuffers : VKComponent {
-	public CommandBuffer[]? cmdBuffs;
-
-	public override void init(VKSetup s) {
-		var (cp, fb, rp, sc, pl, vb) = s.require<VKCommandPool, VKFrameBuffer
-			, VKRenderPass, VKSwapChain, VKGraphicsPipeline, VKVertexBuffer>();
-		cmdBuffs = new CommandBuffer[fb.swapChainFrameBuffers!.Length];
-
-		CommandBufferAllocateInfo allocInfo = new() {
-			SType = StructureType.CommandBufferAllocateInfo,
-			CommandPool = cp.commandPool,
-			Level = CommandBufferLevel.Primary,
-			CommandBufferCount = (uint)cmdBuffs.Length,
-		};
-
-		fixed (CommandBuffer* commandBuffersPtr = cmdBuffs) {
-			s.vk.AllocateCommandBuffers(s.device
-				, in allocInfo, commandBuffersPtr)
-				.throwOnFail("failed to allocate command buffers!");
-		}
-
-
-		for (int i = 0; i < cmdBuffs.Length; i++) {
-			CommandBufferBeginInfo beginInfo = new() {
-				SType = StructureType.CommandBufferBeginInfo,
-			};
-
-			if (s.vk!.BeginCommandBuffer(cmdBuffs[i], in beginInfo)
-				!= Result.Success) {
-				throw new Exception("failed to begin recording command buffer!");
-			}
-
-			RenderPassBeginInfo renderPassInfo = new() {
-				SType = StructureType.RenderPassBeginInfo,
-				RenderPass = rp.renderPass,
-				Framebuffer = fb.swapChainFrameBuffers[i],
-				RenderArea =
-				{
-					Offset = { X = 0, Y = 0 },
-					Extent = sc.swapChainExtent,
-				}
-			};
-
-			ClearValue clearColor = new() {
-				Color = new() {
-					Float32_0 = 0, Float32_1 = 0
-								, Float32_2 = 0, Float32_3 = 1
-				},
-			};
-
-			renderPassInfo.ClearValueCount = 1;
-			renderPassInfo.PClearValues = &clearColor;
-
-			s.vk!.CmdBeginRenderPass(cmdBuffs[i], &renderPassInfo
-				, SubpassContents.Inline);
-
-			s.vk!.CmdBindPipeline(cmdBuffs[i]
-				, PipelineBindPoint.Graphics, pl.graphicsPipeline);
-
-			
-			Buffer[] vertexBuffers = [vb.buffer];
-			var offsets = new ulong[] { 0 };
-			s.vk.CmdBindVertexBuffers
-				(cmdBuffs[i], 0, 1, vertexBuffers, offsets);
-
-			Buffer[] indsBuffers = [vb.indBuff];
-			s.vk.CmdBindIndexBuffer(cmdBuffs[i], vb.indBuff, 0, IndexType.Uint32);
-
-			s.vk.CmdDrawIndexed(cmdBuffs[i], (uint)vb.inds.Count, 1, 0, 0, 0);
-
-			//s.vk!.CmdDraw(cmdBuffs[i], 
-			//	(uint)vb.verts.Count, 1, 0, 0);
-
-			s.vk!.CmdEndRenderPass(cmdBuffs[i]);
-
-			if (s.vk!.EndCommandBuffer(cmdBuffs[i]) != Result.Success) {
-				throw new Exception("failed to record command buffer!");
-			}
-
-		}
-	}
-
-	public override void clear(VKSetup s) {
-		//I didn't notice any clean up in original C# clear method.
-		//I assume this is all done at once with `vk.DestroyCommandPool`
 	}
 }
 

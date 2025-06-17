@@ -10,6 +10,9 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 using MemProps = Silk.NET.Vulkan.MemoryPropertyFlags;
 using BuffUsage = Silk.NET.Vulkan.BufferUsageFlags;
 using _150_trying.utils;
+using _150_trying.geom;
+using Silk.NET.Maths;
+using _150_trying.utils;
 
 namespace _150_trying.VKComponents;
 
@@ -52,10 +55,13 @@ public unsafe class VKSetup {
 			new VKSwapChain(),
 			new VKImageViews(),
 			new VKRenderPass(),
+			new VKDescriptorSetLayout(),
 			new VKGraphicsPipeline(),
 			new VKFrameBuffer(),
 			new VKCommandPool(),
-			new VKVertexBuffer(),
+			new VKVertexIndexBuffer(),
+			new VKUniformBuffers(),
+			new VKDescriptorPool(),
 			new VKCommandBuffers(),
 			new VKSyncObjects(),
 		];
@@ -77,7 +83,8 @@ public unsafe class VKSetup {
 	int currentFrame;
 
 	public void DrawFrame(double delta) {
-		var (so, sc, cb) = require<VKSyncObjects, VKSwapChain, VKCommandBuffers>();
+		var (so, sc, cb, ub) = require<VKSyncObjects, VKSwapChain
+			, VKCommandBuffers, VKUniformBuffers>();
 		vk!.WaitForFences(device, 1, in so.inFlightFences![currentFrame]
 			, true, ulong.MaxValue);
 
@@ -90,6 +97,8 @@ public unsafe class VKSetup {
 				, true, ulong.MaxValue);
 		}
 		so.imagesInFlight[imageIndex] = so.inFlightFences[currentFrame];
+
+		updateUniformBuffer(currentFrame, sc, ub);
 
 		SubmitInfo submitInfo = new() {
 			SType = StructureType.SubmitInfo,
@@ -140,6 +149,28 @@ public unsafe class VKSetup {
 
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
+	}
+
+	private DateTime startTime = DateTime.Now;
+
+	private void updateUniformBuffer(int currentImage, VKSwapChain sc, VKUniformBuffers ub) {
+		var time = (float)(DateTime.Now - startTime).TotalSeconds;
+		var ubo = new UniformBufferObject() {
+			model = Matrix4X4<float>.Identity
+				* Matrix4X4.CreateFromAxisAngle<float>
+				(new Vector3D<float>(0, 0, 1), time * 90.0f.toRadians() ),
+			view = Matrix4X4.CreateLookAt(
+				new Vector3D<float>(2, 2, 2)
+				, new Vector3D<float>(0, 0, 0)
+				, new Vector3D<float>(0, 0, 1)),
+			proj = Matrix4X4.CreatePerspectiveFieldOfView
+				(45.0f.toRadians()
+				, sc.swapChainExtent.Width / sc.swapChainExtent.Height
+				, 0.1f, 10.0f),
+		};
+		ubo.proj.M22 *= -1;
+
+		ub.update(ubo, currentImage);
 	}
 
 	#region Helper methods
@@ -244,6 +275,7 @@ public unsafe class VKSetup {
 	public (T, T2, T3, T4) require<T, T2, T3, T4>() => (require<T>(), require<T2>(), require<T3>(), require<T4>());
 	public (T, T2, T3, T4, T5) require<T, T2, T3, T4, T5>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>());
 	public (T, T2, T3, T4, T5, T6) require<T, T2, T3, T4, T5, T6>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>(), require<T6>());
+	public (T, T2, T3, T4, T5, T6, T7) require<T, T2, T3, T4, T5, T6, T7>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>(), require<T6>(), require<T7>());
 
 
 }

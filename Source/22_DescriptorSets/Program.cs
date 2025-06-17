@@ -1212,7 +1212,9 @@ unsafe class HelloTriangleApplication
 
                 vk!.CmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, IndexType.Uint16);
 
-                vk!.CmdBindDescriptorSets(commandBuffers[i], PipelineBindPoint.Graphics, pipelineLayout, 0, 1, descriptorSets![i], 0, null);
+                vk!.CmdBindDescriptorSets(commandBuffers[i], PipelineBindPoint.Graphics
+                    , pipelineLayout, 0, 1
+                    , descriptorSets![i], 0, null);
 
                 vk!.CmdDrawIndexed(commandBuffers[i], (uint)indices.Length, 1, 0, 0, 0);
 

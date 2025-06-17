@@ -1,5 +1,6 @@
 ﻿using Silk.NET.Vulkan;
 using System.Diagnostics;
+using System.Numerics;
 
 namespace _150_trying.utils;
 
@@ -15,7 +16,11 @@ public static class SilkVulkanExtensions {
 		if (r == Result.Success) return;
 		var nL = message != null ? "\n" : "";
 		throw new VulkanException($"{message}{nL}{r} Code:{(int)r}");
+	}
 
+	public static T toRadians<T>(this T degrees) where T : INumber<T> {
+		return degrees * T.CreateTruncating(Math.PI)
+			/ T.CreateTruncating(180f);
 	}
 }
 
