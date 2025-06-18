@@ -13,6 +13,8 @@ using _150_trying.utils;
 using System;
 using Silk.NET.OpenAL;
 using _150_trying.geom;
+using SixLabors.ImageSharp;
+using Image = Silk.NET.Vulkan.Image;
 
 namespace _150_trying.VKComponents;
 
@@ -30,21 +32,29 @@ public unsafe class VKDescriptorPool : VKComponent {
 	public DescriptorSet[] descriptorSets = new DescriptorSet[VKSetup.MAX_FRAMES_IN_FLIGHT];
 
 	public override void init(VKSetup s) {
-		DescriptorPoolSize poolSize = new() {
-			Type = DescriptorType.UniformBuffer,
-			DescriptorCount = VKSetup.MAX_FRAMES_IN_FLIGHT
+		var poolSizes = new[] {
+			 new DescriptorPoolSize {
+				Type = DescriptorType.UniformBuffer,
+				DescriptorCount = VKSetup.MAX_FRAMES_IN_FLIGHT
+			 },
+			 new DescriptorPoolSize {
+				Type = DescriptorType.CombinedImageSampler,
+				DescriptorCount = VKSetup.MAX_FRAMES_IN_FLIGHT
+			 },
 		};
 
-		DescriptorPoolCreateInfo poolInfo = new (){ 
-			SType = StructureType.DescriptorPoolCreateInfo,
-			PoolSizeCount = 1,
-			PPoolSizes = &poolSize,
-			MaxSets = VKSetup.MAX_FRAMES_IN_FLIGHT,
-		};
+		fixed (DescriptorPoolSize* sizes = poolSizes) {
+			DescriptorPoolCreateInfo poolInfo = new() {
+				SType = StructureType.DescriptorPoolCreateInfo,
+				PoolSizeCount = (uint)poolSizes.Length,
+				PPoolSizes = sizes,
+				MaxSets = VKSetup.MAX_FRAMES_IN_FLIGHT,
+			};
+			s.vk.CreateDescriptorPool(s.device
+				, in poolInfo, null, out descriptorPool)
+				.throwOnFail("Failed to create descriptor pool.");
+		}
 
-		s.vk.CreateDescriptorPool(s.device
-			, in poolInfo, null, out descriptorPool)
-			.throwOnFail("Failed to create descriptor pool.");
 
 		createDescriptorSets(s);
 	}
@@ -54,7 +64,7 @@ public unsafe class VKDescriptorPool : VKComponent {
 		var layouts = new DescriptorSetLayout[VKSetup.MAX_FRAMES_IN_FLIGHT];
 		Array.Fill(layouts, sl.descriptorSetLayout);
 
-		
+
 		fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
 		fixed (DescriptorSetLayout* layoutsPtr = layouts) {
 			DescriptorSetAllocateInfo allocInfo = new() {
@@ -77,20 +87,38 @@ public unsafe class VKDescriptorPool : VKComponent {
 				Range = (ulong)Marshal.SizeOf<UniformBufferObject>(),
 			};
 
-			WriteDescriptorSet descWrite = new() { 
-				SType = StructureType.WriteDescriptorSet,
-				DstSet = descriptorSets[i],
-				DstBinding = 0,
-				DstArrayElement = 0,
-				DescriptorType = DescriptorType.UniformBuffer,
-				DescriptorCount = 1,
-				PBufferInfo = &bufferInfo,
-				PImageInfo = null,
-				PTexelBufferView = null,
+			DescriptorImageInfo ii = new() {
+				ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+				ImageView = s.require<VKTextureImageView>().view,
+				Sampler = s.require<VKTextureSampler>().sampler,
 			};
 
-			s.vk.UpdateDescriptorSets(s.device,
-				1, in descWrite, 0, null);
+			var descWrites = new []{
+				new WriteDescriptorSet{
+					SType = StructureType.WriteDescriptorSet,
+					DstSet = descriptorSets[i],
+					DstBinding = 0,
+					DstArrayElement = 0,
+					DescriptorType = DescriptorType.UniformBuffer,
+					DescriptorCount = 1,
+					PBufferInfo = &bufferInfo,
+					PTexelBufferView = null,
+				},
+				new WriteDescriptorSet{
+					SType = StructureType.WriteDescriptorSet,
+					DstSet = descriptorSets[i],
+					DstBinding = 1,
+					DstArrayElement = 0,
+					DescriptorType = DescriptorType.CombinedImageSampler,
+					DescriptorCount = 1,
+					PImageInfo = &ii,
+				},
+			};
+
+			fixed(WriteDescriptorSet* dwp = descWrites) {
+				s.vk.UpdateDescriptorSets(s.device,
+					(uint)descWrites.Length, dwp, 0, null);
+			}
 		}
 	}
 
@@ -306,10 +334,14 @@ public unsafe class VKDevicePicker : VKComponent {
 		bool swapChainAdequate = false;
 		if (extensionsSupported) {
 			var swapChainSupport = QuerySwapChainSupport(s, device);
-			swapChainAdequate = swapChainSupport.Formats.Any() && swapChainSupport.PresentModes.Any();
+			swapChainAdequate = swapChainSupport.Formats.Any()
+				&& swapChainSupport.PresentModes.Any();
 		}
 
-		return indices.IsComplete() && extensionsSupported && swapChainAdequate;
+		s.vk.GetPhysicalDeviceFeatures(device, out var supportedFeatures);
+
+		return indices.IsComplete() && extensionsSupported && swapChainAdequate
+			&& supportedFeatures.SamplerAnisotropy;
 	}
 
 	private bool CheckDeviceExtensionsSupport(VKSetup s, PhysicalDevice device) {
@@ -319,10 +351,13 @@ public unsafe class VKDevicePicker : VKComponent {
 
 		var availableExtensions = new ExtensionProperties[extentionsCount];
 		fixed (ExtensionProperties* availableExtensionsPtr = availableExtensions) {
-			s.vk!.EnumerateDeviceExtensionProperties(device, (byte*)null, ref extentionsCount, availableExtensionsPtr);
+			s.vk!.EnumerateDeviceExtensionProperties
+				(device, (byte*)null, ref extentionsCount, availableExtensionsPtr);
 		}
 
-		var availableExtensionNames = availableExtensions.Select(extension => Marshal.PtrToStringAnsi((nint)extension.ExtensionName)).ToHashSet();
+		var availableExtensionNames = availableExtensions
+			.Select(extension => Marshal.PtrToStringAnsi
+			((nint)extension.ExtensionName)).ToHashSet();
 
 		return s.deviceExtensions.All(availableExtensionNames.Contains);
 	}
@@ -432,7 +467,9 @@ public unsafe class VKLogicalDevice : VKComponent {
 			queueCreateInfos[i].PQueuePriorities = &queuePriority;
 		}
 
-		PhysicalDeviceFeatures deviceFeatures = new();
+		PhysicalDeviceFeatures deviceFeatures = new() {
+			SamplerAnisotropy = true,
+		};
 
 		DeviceCreateInfo createInfo = new() {
 			SType = StructureType.DeviceCreateInfo,
@@ -603,34 +640,56 @@ public unsafe class VKImageViews : VKComponent {
 		swapChainImageViews = new ImageView[sc.swapChainImages!.Length];
 
 		for (int i = 0; i < sc.swapChainImages.Length; i++) {
-			ImageViewCreateInfo createInfo = new() {
-				SType = StructureType.ImageViewCreateInfo,
-				Image = sc.swapChainImages[i],
-				ViewType = ImageViewType.Type2D,
-				Format = sc.swapChainImageFormat,
-				Components =
-				{
-					R = ComponentSwizzle.Identity,
-					G = ComponentSwizzle.Identity,
-					B = ComponentSwizzle.Identity,
-					A = ComponentSwizzle.Identity,
-				},
-				SubresourceRange =
-				{
-					AspectMask = ImageAspectFlags.ColorBit,
-					BaseMipLevel = 0,
-					LevelCount = 1,
-					BaseArrayLayer = 0,
-					LayerCount = 1,
-				}
+			swapChainImageViews[i] = createImageView(s, sc.swapChainImages[i]
+				, sc.swapChainImageFormat);
 
-			};
+			//ImageViewCreateInfo createInfo = new() {
+			//	SType = StructureType.ImageViewCreateInfo,
+			//	Image = sc.swapChainImages[i],
+			//	ViewType = ImageViewType.Type2D,
+			//	Format = sc.swapChainImageFormat,
+			//	Components =
+			//	{
+			//		R = ComponentSwizzle.Identity,
+			//		G = ComponentSwizzle.Identity,
+			//		B = ComponentSwizzle.Identity,
+			//		A = ComponentSwizzle.Identity,
+			//	},
+			//	SubresourceRange =
+			//	{
+			//		AspectMask = ImageAspectFlags.ColorBit,
+			//		BaseMipLevel = 0,
+			//		LevelCount = 1,
+			//		BaseArrayLayer = 0,
+			//		LayerCount = 1,
+			//	}
 
-			if (s.vk!.CreateImageView(s.device, in createInfo
-				, null, out swapChainImageViews[i]) != Result.Success) {
-				throw new Exception("failed to create image views!");
-			}
+			//};
+
+			//if (s.vk!.CreateImageView(s.device, in createInfo
+			//	, null, out swapChainImageViews[i]) != Result.Success) {
+			//	throw new Exception("failed to create image views!");
+			//}
 		}
+	}
+
+	public static ImageView createImageView(VKSetup s, Image image, Format format) {
+		ImageViewCreateInfo ci = new() {
+			SType = StructureType.ImageViewCreateInfo,
+			Image = image,
+			ViewType = ImageViewType.Type2D,
+			Format = format,
+			SubresourceRange = {
+				AspectMask = ImageAspectFlags.ColorBit,
+				BaseMipLevel = 0,
+				LevelCount = 1,
+				BaseArrayLayer = 0,
+				LayerCount = 1,
+			},
+		};
+		s.vk.CreateImageView(s.device, in ci, null, out var imageView)
+			.throwOnFail("Failed to create image view!");
+		return imageView;
 	}
 
 	public override void clear(VKSetup s) {

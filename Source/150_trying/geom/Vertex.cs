@@ -1,4 +1,4 @@
-﻿// Ignore Spelling: Utils Indices Vertices
+﻿// Ignore Spelling: Utils Indices Vertices Coord
 
 using Silk.NET.Vulkan;
 using System.Runtime.InteropServices;
@@ -23,10 +23,11 @@ public class Vertices : IReadOnlyList<Vertex> {
 		return vs;
 	}
 
-	public void Add((float a, float b) pos, (float r, float g, float b) color) {
+	public void Add((float a, float b) pos, (float r, float g, float b) color, (float u, float v) texCoord = default) {
 		_all.Add(new Vertex() {
-			pos = new Vector2D<float>(pos.a, pos.b)
-		, color = new Vector3D<float>(color.r, color.g, color.b)
+			pos = new Vector2D<float>(pos.a, pos.b),
+			color = new Vector3D<float>(color.r, color.g, color.b),
+			texCoord = new Vector2D<float>(texCoord.u, texCoord.v),
 		});
 	}
 
@@ -42,6 +43,7 @@ public class Vertices : IReadOnlyList<Vertex> {
 public struct Vertex {
 	public Vector2D<float> pos;
 	public Vector3D<float> color;
+	public Vector2D<float> texCoord;
 
 	public static VertexInputBindingDescription getBindingDescription() {
 		VertexInputBindingDescription bindingDescription = new() {
@@ -69,6 +71,13 @@ public struct Vertex {
 				Location = 1,
 				Format = Format.R32G32B32Sfloat,
 				Offset = (uint)Marshal.OffsetOf<Vertex>(nameof(color)),
+			},
+			new VertexInputAttributeDescription()
+			{
+				Binding = 0,
+				Location = 2,
+				Format = Format.R32G32Sfloat,
+				Offset = (uint)Marshal.OffsetOf<Vertex>(nameof(texCoord)),
 			}
 		};
 

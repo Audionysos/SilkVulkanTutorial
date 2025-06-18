@@ -933,7 +933,12 @@ unsafe class HelloTriangleApplication
         img.CopyPixelDataTo(new Span<byte>(data, (int)imageSize));
         vk!.UnmapMemory(device, stagingBufferMemory);
 
-        CreateImage((uint)img.Width, (uint)img.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal, ImageUsageFlags.ImageUsageTransferDstBit | ImageUsageFlags.ImageUsageSampledBit, MemoryPropertyFlags.MemoryPropertyDeviceLocalBit, ref textureImage, ref textureImageMemory);
+        CreateImage((uint)img.Width, (uint)img.Height
+            , Format.R8G8B8A8Srgb, ImageTiling.Optimal
+            , ImageUsageFlags.ImageUsageTransferDstBit
+            | ImageUsageFlags.ImageUsageSampledBit
+            , MemoryPropertyFlags.MemoryPropertyDeviceLocalBit
+            , ref textureImage, ref textureImageMemory);
 
         TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
         CopyBufferToImage(stagingBuffer, textureImage, (uint)img.Width, (uint)img.Height);

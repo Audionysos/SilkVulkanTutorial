@@ -13,6 +13,7 @@ using _150_trying.utils;
 using _150_trying.geom;
 using Silk.NET.Maths;
 using _150_trying.utils;
+using System.Diagnostics;
 
 namespace _150_trying.VKComponents;
 
@@ -59,6 +60,9 @@ public unsafe class VKSetup {
 			new VKGraphicsPipeline(),
 			new VKFrameBuffer(),
 			new VKCommandPool(),
+			new VKTextureImage(),
+			new VKTextureImageView(),
+			new VKTextureSampler(),
 			new VKVertexIndexBuffer(),
 			new VKUniformBuffers(),
 			new VKDescriptorPool(),
@@ -211,42 +215,78 @@ public unsafe class VKSetup {
 	}
 
 	public void copyBuffer(Buffer src, Buffer dst, ulong size) {
-		CommandPool cp = require<VKCommandPool>().commandPool;
-		CommandBufferAllocateInfo allocInfo = new() {
-			SType = StructureType.CommandBufferAllocateInfo,
-			Level = CommandBufferLevel.Primary,
-			CommandPool = cp,
-			CommandBufferCount = 1,
-		};
-		vk.AllocateCommandBuffers(device
-			, in allocInfo, out var cmdBuff);
+		//CommandPool cp = require<VKCommandPool>().commandPool;
+		//CommandBufferAllocateInfo allocInfo = new() {
+		//	SType = StructureType.CommandBufferAllocateInfo,
+		//	Level = CommandBufferLevel.Primary,
+		//	CommandPool = cp,
+		//	CommandBufferCount = 1,
+		//};
+		//vk.AllocateCommandBuffers(device
+		//	, in allocInfo, out var cmdBuff);
 
-		CommandBufferBeginInfo beginInfo = new() {
-			SType = StructureType.CommandBufferBeginInfo,
-			Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
-		};
-		vk.BeginCommandBuffer(cmdBuff, in beginInfo);
+		//CommandBufferBeginInfo beginInfo = new() {
+		//	SType = StructureType.CommandBufferBeginInfo,
+		//	Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+		//};
+		//vk.BeginCommandBuffer(cmdBuff, in beginInfo);
+
+		var cmdBuff = beginSingleTimeCommands();
 
 		BufferCopy copyRegion = new() {
 			SrcOffset = 0, DstOffset = 0, //optional
 			Size = size
 		};
 		vk.CmdCopyBuffer(cmdBuff, src, dst, 1, in copyRegion);
-		vk.EndCommandBuffer(cmdBuff);
 
+		endSingleTimeCommands(cmdBuff);
+
+		//vk.EndCommandBuffer(cmdBuff);
+
+		//SubmitInfo si = new() {
+		//	SType = StructureType.SubmitInfo,
+		//	CommandBufferCount = 1,
+		//	PCommandBuffers = &cmdBuff
+		//};
+
+		//vk.QueueSubmit(graphicsQueue, 1, in si, new Fence());
+		//vk.QueueWaitIdle(graphicsQueue);
+
+		//vk.FreeCommandBuffers(device, cp, 1, in cmdBuff);
+	}
+
+	public CommandBuffer beginSingleTimeCommands() {
+		CommandBufferAllocateInfo ai = new() {
+			SType = StructureType.CommandBufferAllocateInfo,
+			Level = CommandBufferLevel.Primary,
+			CommandPool = require<VKCommandPool>().commandPool,
+			CommandBufferCount = 1,
+		};
+
+		vk.AllocateCommandBuffers(device, in ai, out var cb);
+
+		CommandBufferBeginInfo bi = new() {
+			SType = StructureType.CommandBufferBeginInfo,
+			Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+		};
+		vk.BeginCommandBuffer(cb, in bi);
+		return cb;
+	}
+
+	public void endSingleTimeCommands(CommandBuffer cb) {
+		vk.EndCommandBuffer(cb);
 		SubmitInfo si = new() {
 			SType = StructureType.SubmitInfo,
 			CommandBufferCount = 1,
-			PCommandBuffers = &cmdBuff
+			PCommandBuffers = &cb
 		};
-
-		vk.QueueSubmit(graphicsQueue, 1, in si, new Fence());
+		vk.QueueSubmit(graphicsQueue, 1, in si, default);
 		vk.QueueWaitIdle(graphicsQueue);
-
-		vk.FreeCommandBuffers(device, cp, 1, in cmdBuff);
+		vk.FreeCommandBuffers(device, require<VKCommandPool>().commandPool
+			, 1, in cb);
 	}
 
-	private uint FindMemoryType(uint typeFilter, MemProps properties) {
+	public uint FindMemoryType(uint typeFilter, MemProps properties) {
 		vk.GetPhysicalDeviceMemoryProperties
 			(physicalDevice, out var props);
 
@@ -263,18 +303,26 @@ public unsafe class VKSetup {
 
 
 	//public T? get<T>() { return default; }
+	[DebuggerHidden]
 	public object require(Type t) {
-		var c = components.Find(c => c.GetType() == t);
-		if (c == null) throw new Exception($"Component not found exception ({t})");
+		var c = components.Find(c => c.GetType() == t)
+			?? throw new Exception($"Component not found exception ({t})");
 		if (!c.initialized) throw new Exception($"Component not initialized ({t})");
 		return c;
 	}
+	[DebuggerHidden]
 	public T require<T>() => (T)require(typeof(T));
+	[DebuggerHidden]
 	public (T, T2) require<T, T2>() => (require<T>(), require<T2>());
+	[DebuggerHidden]
 	public (T, T2, T3) require<T, T2, T3>() => (require<T>(), require<T2>(), require<T3>());
+	[DebuggerHidden]
 	public (T, T2, T3, T4) require<T, T2, T3, T4>() => (require<T>(), require<T2>(), require<T3>(), require<T4>());
+	[DebuggerHidden]
 	public (T, T2, T3, T4, T5) require<T, T2, T3, T4, T5>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>());
+	[DebuggerHidden]
 	public (T, T2, T3, T4, T5, T6) require<T, T2, T3, T4, T5, T6>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>(), require<T6>());
+	[DebuggerHidden]
 	public (T, T2, T3, T4, T5, T6, T7) require<T, T2, T3, T4, T5, T6, T7>() => (require<T>(), require<T2>(), require<T3>(), require<T4>(), require<T5>(), require<T6>(), require<T7>());
 
 

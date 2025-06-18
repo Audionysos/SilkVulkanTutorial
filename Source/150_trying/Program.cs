@@ -30,6 +30,8 @@ unsafe class HelloTriangleApplication {
 
 		_ = ShadersCompiler.compile
 			(@"shaders/shader.vert", @"shaders/vert.spv");
+		_ = ShadersCompiler.compile
+			(@"shaders/shader.frag", @"shaders/frag.spv");
 
 		window = Window.Create(options);
 		window.Initialize();

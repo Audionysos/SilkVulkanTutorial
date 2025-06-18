@@ -2,6 +2,7 @@
 
 using Silk.NET.Vulkan;
 using _150_trying.utils;
+using System;
 
 namespace _150_trying.VKComponents;
 
@@ -18,14 +19,26 @@ public unsafe class VKDescriptorSetLayout : VKComponent {
 			PImmutableSamplers = null,
 		};
 
-		DescriptorSetLayoutCreateInfo li = new() {
-			SType = StructureType.DescriptorSetLayoutCreateInfo,
-			BindingCount = 1,
-			PBindings = &uboBind,
+		DescriptorSetLayoutBinding smpBind = new() {
+			Binding = 1,
+			DescriptorCount = 1,
+			DescriptorType = DescriptorType.CombinedImageSampler,
+			PImmutableSamplers = null,
+			StageFlags = ShaderStageFlags.FragmentBit,
 		};
 
-		s.vk.CreateDescriptorSetLayout(s.device, in li, null, out descriptorSetLayout)
-			.throwOnFail("Failed to create descriptor set layout.");
+		DescriptorSetLayoutBinding[] bindings = [uboBind, smpBind]; 
+
+		fixed(DescriptorSetLayoutBinding* bp = bindings) {
+			DescriptorSetLayoutCreateInfo li = new() {
+				SType = StructureType.DescriptorSetLayoutCreateInfo,
+				BindingCount = (uint)bindings.Length,
+				PBindings = bp,
+			};
+
+			s.vk.CreateDescriptorSetLayout(s.device, in li, null, out descriptorSetLayout)
+				.throwOnFail("Failed to create descriptor set layout.");
+		}
 	}
 
 	public override void clear(VKSetup s) {
