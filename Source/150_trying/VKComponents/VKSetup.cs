@@ -55,6 +55,7 @@ public unsafe class VKSetup {
 			new VKLogicalDevice(),
 			new VKSwapChain(),
 			new VKImageViews(),
+			new VKDepthResources(),
 			new VKRenderPass(),
 			new VKDescriptorSetLayout(),
 			new VKGraphicsPipeline(),
@@ -79,13 +80,18 @@ public unsafe class VKSetup {
 	}
 
 	public void clear() {
+		var dm = require<VKDebugMessenger>();
+		var ec = dm.errors.Count;
+		Debug.WriteLine("------------VKSetup cleanup--------------");
 		for (int i = components.Count - 1; i >= 0; i--) {
 			var c = components[i];
 			c.clear(this);
 		}
+		if (dm.errors.Count > ec)
+			throw new Exception("Check out output for Vulkan errors during cleanup");
 	}
-	int currentFrame;
 
+	int currentFrame;
 	public void DrawFrame(double delta) {
 		var (so, sc, cb, ub) = require<VKSyncObjects, VKSwapChain
 			, VKCommandBuffers, VKUniformBuffers>();
@@ -215,22 +221,6 @@ public unsafe class VKSetup {
 	}
 
 	public void copyBuffer(Buffer src, Buffer dst, ulong size) {
-		//CommandPool cp = require<VKCommandPool>().commandPool;
-		//CommandBufferAllocateInfo allocInfo = new() {
-		//	SType = StructureType.CommandBufferAllocateInfo,
-		//	Level = CommandBufferLevel.Primary,
-		//	CommandPool = cp,
-		//	CommandBufferCount = 1,
-		//};
-		//vk.AllocateCommandBuffers(device
-		//	, in allocInfo, out var cmdBuff);
-
-		//CommandBufferBeginInfo beginInfo = new() {
-		//	SType = StructureType.CommandBufferBeginInfo,
-		//	Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
-		//};
-		//vk.BeginCommandBuffer(cmdBuff, in beginInfo);
-
 		var cmdBuff = beginSingleTimeCommands();
 
 		BufferCopy copyRegion = new() {
@@ -240,19 +230,6 @@ public unsafe class VKSetup {
 		vk.CmdCopyBuffer(cmdBuff, src, dst, 1, in copyRegion);
 
 		endSingleTimeCommands(cmdBuff);
-
-		//vk.EndCommandBuffer(cmdBuff);
-
-		//SubmitInfo si = new() {
-		//	SType = StructureType.SubmitInfo,
-		//	CommandBufferCount = 1,
-		//	PCommandBuffers = &cmdBuff
-		//};
-
-		//vk.QueueSubmit(graphicsQueue, 1, in si, new Fence());
-		//vk.QueueWaitIdle(graphicsQueue);
-
-		//vk.FreeCommandBuffers(device, cp, 1, in cmdBuff);
 	}
 
 	public CommandBuffer beginSingleTimeCommands() {

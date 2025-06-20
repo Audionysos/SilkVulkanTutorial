@@ -16,16 +16,16 @@ public class Vertices : IReadOnlyList<Vertex> {
 
 	public static Vertices test() {
 		Vertices vs = new Vertices() {
-			{(0.0f, -0.5f), (1.0f, 0.0f, 0.0f)},
-			{(0.5f, 0.5f), ( 0.0f, 1.0f, 0.0f)},
-			{(-0.5f, 0.5f), ( 0.0f, 0.0f, 1.0f)},
+			{(0.0f, -0.5f, 0), (1.0f, 0.0f, 0.0f)},
+			{(0.5f, 0.5f, 0), ( 0.0f, 1.0f, 0.0f)},
+			{(-0.5f, 0.5f, 0), ( 0.0f, 0.0f, 1.0f)},
 	};
 		return vs;
 	}
 
-	public void Add((float a, float b) pos, (float r, float g, float b) color, (float u, float v) texCoord = default) {
+	public void Add((float x, float y, float z) pos, (float r, float g, float b) color, (float u, float v) texCoord = default) {
 		_all.Add(new Vertex() {
-			pos = new Vector2D<float>(pos.a, pos.b),
+			pos = new Vector3D<float>(pos.x, pos.y, pos.z),
 			color = new Vector3D<float>(color.r, color.g, color.b),
 			texCoord = new Vector2D<float>(texCoord.u, texCoord.v),
 		});
@@ -41,7 +41,7 @@ public class Vertices : IReadOnlyList<Vertex> {
 }
 
 public struct Vertex {
-	public Vector2D<float> pos;
+	public Vector3D<float> pos;
 	public Vector3D<float> color;
 	public Vector2D<float> texCoord;
 
@@ -62,7 +62,7 @@ public struct Vertex {
 			{
 				Binding = 0,
 				Location = 0,
-				Format = Format.R32G32Sfloat,
+				Format = Format.R32G32B32Sfloat,
 				Offset = (uint)Marshal.OffsetOf<Vertex>(nameof(pos)),
 			},
 			new VertexInputAttributeDescription()

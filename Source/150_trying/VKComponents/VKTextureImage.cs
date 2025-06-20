@@ -97,10 +97,12 @@ public unsafe class VKTextureImage : VKComponent {
 	public static void createImage(VKSetup s, int w, int h
 		, out Image image
 		, out DeviceMemory imageMemory
-		, ImageUsageFlags usage = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit
+		, ImageUsageFlags usage = ImageUsageFlags.TransferDstBit
+		| ImageUsageFlags.SampledBit
 		, Format format = Format.R8G8B8A8Srgb
 		, ImageTiling tiling = ImageTiling.Optimal
-		, ImageLayout layout = ImageLayout.Undefined)
+		, ImageLayout layout = ImageLayout.Undefined
+		, MemoryPropertyFlags properties = MemoryPropertyFlags.DeviceLocalBit)
 	{
 		ImageCreateInfo imageInfo = new() {
 			SType = StructureType.ImageCreateInfo,
@@ -115,8 +117,7 @@ public unsafe class VKTextureImage : VKComponent {
 			Format = format,
 			Tiling = tiling,
 			InitialLayout = layout,
-			Usage = ImageUsageFlags.TransferDstBit
-				| ImageUsageFlags.SampledBit,
+			Usage = usage,
 			Samples = SampleCountFlags.Count1Bit,
 			SharingMode = SharingMode.Exclusive,
 		};
@@ -133,7 +134,7 @@ public unsafe class VKTextureImage : VKComponent {
 			SType = StructureType.MemoryAllocateInfo,
 			AllocationSize = memReq.Size,
 			MemoryTypeIndex = s.FindMemoryType
-				(memReq.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
+				(memReq.MemoryTypeBits, properties)
 		};
 
 		s.vk.AllocateMemory(s.device, in allocInfo, null, out imageMemory)
@@ -205,13 +206,6 @@ public unsafe class VKTextureImage : VKComponent {
 		s.endSingleTimeCommands(cb);
 	}
 
-	//void transitionImageLayout(VkImage image, VkFormat format
-	//, VkImageLayout oldLayout, VkImageLayout newLayout)
-	//{
-	//	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
-
-	//	endSingleTimeCommands(commandBuffer);
-	//}
 
 	public static void copyBufferToImage(VKSetup s, Buffer buffer, Image image, uint width, uint height) {
 		var cb = s.beginSingleTimeCommands();

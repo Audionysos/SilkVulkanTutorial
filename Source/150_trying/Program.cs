@@ -2,6 +2,7 @@
 using _150_trying.VKComponents;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
+using static Silk.NET.GLFW.GlfwCallbacks;
 
 
 var app = new HelloTriangleApplication();
@@ -35,15 +36,18 @@ unsafe class HelloTriangleApplication {
 
 		window = Window.Create(options);
 		window.Initialize();
-
-		if (window.VkSurface is null) {
+		if (window.VkSurface is null)
 			throw new Exception("Windowing platform doesn't support Vulkan.");
-		}
+		window.Resize += FramebufferResizeCallback;
 	}
 
 	private void MainLoop() {
 		window!.Render += setup.DrawFrame;
 		window!.Run();
 		setup.vk!.DeviceWaitIdle(setup.device);
+	}
+
+	private void FramebufferResizeCallback(Vector2D<int> d) {
+		//That should eventually cause `RecreateSwapChain()` which is not include currently in the project
 	}
 }

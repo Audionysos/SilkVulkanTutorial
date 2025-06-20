@@ -39,29 +39,26 @@ public unsafe class VKCommandBuffers : VKComponent {
 				throw new Exception("failed to begin recording command buffer!");
 			}
 
-			RenderPassBeginInfo renderPassInfo = new() {
-				SType = StructureType.RenderPassBeginInfo,
-				RenderPass = rp.renderPass,
-				Framebuffer = fb.swapChainFrameBuffers[i],
-				RenderArea =
-				{
-					Offset = { X = 0, Y = 0 },
-					Extent = sc.swapChainExtent,
-				}
+			var clear = new [] {
+				new ClearValue(color:new(0, 0, 0, 1)),
+				new ClearValue(depthStencil:new(1, 0)),
 			};
+			fixed(ClearValue* clearP = clear) {
+				RenderPassBeginInfo renderPassInfo = new() {
+					SType = StructureType.RenderPassBeginInfo,
+					RenderPass = rp.renderPass,
+					Framebuffer = fb.swapChainFrameBuffers[i],
+					RenderArea = {
+						Offset = { X = 0, Y = 0 },
+						Extent = sc.swapChainExtent,
+					},
+					ClearValueCount = (uint)clear.Length,
+					PClearValues = clearP,
+				};
 
-			ClearValue clearColor = new() {
-				Color = new() {
-					Float32_0 = 0, Float32_1 = 0
-								, Float32_2 = 0, Float32_3 = 1
-				},
-			};
-
-			renderPassInfo.ClearValueCount = 1;
-			renderPassInfo.PClearValues = &clearColor;
-
-			s.vk!.CmdBeginRenderPass(cmdBuffs[i], &renderPassInfo
-				, SubpassContents.Inline);
+				s.vk!.CmdBeginRenderPass(cmdBuffs[i], &renderPassInfo
+					, SubpassContents.Inline);
+			}
 
 			s.vk!.CmdBindPipeline(cmdBuffs[i]
 				, PipelineBindPoint.Graphics, pl.graphicsPipeline);

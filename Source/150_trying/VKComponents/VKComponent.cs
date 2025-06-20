@@ -1,20 +1,21 @@
-﻿// Ignore Spelling: Utils Indices Vertices verts khr ubo
+﻿// Ignore Spelling: Utils Indices Vertices verts khr ubo Mem
 
-using Silk.NET.Vulkan;
-using Silk.NET.Vulkan.Extensions.KHR;
-using Silk.NET.Vulkan.Extensions.EXT;
-using Semaphore = Silk.NET.Vulkan.Semaphore;
-using System.Runtime.InteropServices;
-using Silk.NET.Core.Native;
-using Silk.NET.Core;
-using System.Runtime.CompilerServices;
-using System.Diagnostics;
-using _150_trying.utils;
-using System;
-using Silk.NET.OpenAL;
 using _150_trying.geom;
+using _150_trying.utils;
+using Silk.NET.Core;
+using Silk.NET.Core.Native;
+using Silk.NET.OpenAL;
+using Silk.NET.Vulkan;
+using Silk.NET.Vulkan.Extensions.EXT;
+using Silk.NET.Vulkan.Extensions.KHR;
 using SixLabors.ImageSharp;
+using System;
+using System.Diagnostics;
+using System.Net.Mail;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Image = Silk.NET.Vulkan.Image;
+using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace _150_trying.VKComponents;
 
@@ -25,6 +26,7 @@ public abstract class VKComponent {
 	public abstract void clear(VKSetup s);
 
 }
+
 
 /// <summary>https://vulkan-tutorial.com/en/Uniform_buffers/Descriptor_pool_and_sets</summary>
 public unsafe class VKDescriptorPool : VKComponent {
@@ -134,6 +136,7 @@ public unsafe class VKDescriptorPool : VKComponent {
 public unsafe class VKDebugMessenger : VKComponent {
 	public ExtDebugUtils? debugUtils;
 	public DebugUtilsMessengerEXT debugMessenger;
+	public List<string> errors = new ();
 
 	public override void init(VKSetup s) {
 		if (!s.EnableValidationLayers) return;
@@ -144,10 +147,9 @@ public unsafe class VKDebugMessenger : VKComponent {
 		DebugUtilsMessengerCreateInfoEXT createInfo = new();
 		PopulateDebugMessengerCreateInfo(ref createInfo);
 
-		if (debugUtils!.CreateDebugUtilsMessenger
-			(s.instance, in createInfo, null, out debugMessenger) != Result.Success) {
-			throw new Exception("failed to set up debug messenger!");
-		}
+		debugUtils!.CreateDebugUtilsMessenger(s.instance, in createInfo
+			, null, out debugMessenger)
+			.throwOnFail("failed to set up debug messenger!");
 	}
 
 	private void PopulateDebugMessengerCreateInfo(ref DebugUtilsMessengerCreateInfoEXT createInfo) {
@@ -162,8 +164,13 @@ public unsafe class VKDebugMessenger : VKComponent {
 			DebugCallback;
 	}
 
-	private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT messageSeverity, DebugUtilsMessageTypeFlagsEXT messageTypes, DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
-		Debug.WriteLine($"Vulkan:" + Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage));
+	private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT messageSeverity
+		, DebugUtilsMessageTypeFlagsEXT messageTypes
+		, DebugUtilsMessengerCallbackDataEXT* pCallbackData
+		, void* pUserData) {
+		var e = Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage);
+		Debug.WriteLine($"ERROR VK:" + e);
+		errors.Add(e!);
 		return Vk.False;
 	}
 
@@ -642,45 +649,19 @@ public unsafe class VKImageViews : VKComponent {
 		for (int i = 0; i < sc.swapChainImages.Length; i++) {
 			swapChainImageViews[i] = createImageView(s, sc.swapChainImages[i]
 				, sc.swapChainImageFormat);
-
-			//ImageViewCreateInfo createInfo = new() {
-			//	SType = StructureType.ImageViewCreateInfo,
-			//	Image = sc.swapChainImages[i],
-			//	ViewType = ImageViewType.Type2D,
-			//	Format = sc.swapChainImageFormat,
-			//	Components =
-			//	{
-			//		R = ComponentSwizzle.Identity,
-			//		G = ComponentSwizzle.Identity,
-			//		B = ComponentSwizzle.Identity,
-			//		A = ComponentSwizzle.Identity,
-			//	},
-			//	SubresourceRange =
-			//	{
-			//		AspectMask = ImageAspectFlags.ColorBit,
-			//		BaseMipLevel = 0,
-			//		LevelCount = 1,
-			//		BaseArrayLayer = 0,
-			//		LayerCount = 1,
-			//	}
-
-			//};
-
-			//if (s.vk!.CreateImageView(s.device, in createInfo
-			//	, null, out swapChainImageViews[i]) != Result.Success) {
-			//	throw new Exception("failed to create image views!");
-			//}
 		}
 	}
 
-	public static ImageView createImageView(VKSetup s, Image image, Format format) {
+	public static ImageView createImageView(VKSetup s, Image image, Format format
+		, ImageAspectFlags aspect = ImageAspectFlags.ColorBit)
+	{
 		ImageViewCreateInfo ci = new() {
 			SType = StructureType.ImageViewCreateInfo,
 			Image = image,
 			ViewType = ImageViewType.Type2D,
 			Format = format,
 			SubresourceRange = {
-				AspectMask = ImageAspectFlags.ColorBit,
+				AspectMask = aspect,
 				BaseMipLevel = 0,
 				LevelCount = 1,
 				BaseArrayLayer = 0,
@@ -703,7 +684,7 @@ public unsafe class VKRenderPass : VKComponent {
 	public RenderPass renderPass;
 
 	public override void init(VKSetup s) {
-		var sc = s.require<VKSwapChain>();
+		var (sc, dr) = s.require<VKSwapChain, VKDepthResources>();
 		AttachmentDescription colorAttachment = new() {
 			Format = sc.swapChainImageFormat,
 			Samples = SampleCountFlags.Count1Bit,
@@ -719,34 +700,55 @@ public unsafe class VKRenderPass : VKComponent {
 			Layout = ImageLayout.ColorAttachmentOptimal,
 		};
 
-		SubpassDescription subpass = new() {
+		AttachmentDescription depthAttachment = new() {
+			Format = dr.format,
+			Samples = SampleCountFlags.Count1Bit,
+			LoadOp = AttachmentLoadOp.Clear,
+			StoreOp = AttachmentStoreOp.DontCare,
+			StencilLoadOp = AttachmentLoadOp.DontCare,
+			InitialLayout = ImageLayout.Undefined,
+			FinalLayout = ImageLayout.DepthStencilAttachmentOptimal,
+		};
+
+		AttachmentReference depthAttachmentRef = new() {
+			Attachment = 1,
+			Layout = ImageLayout.DepthStencilAttachmentOptimal,
+		};
+
+		SubpassDescription subPass = new() {
 			PipelineBindPoint = PipelineBindPoint.Graphics,
 			ColorAttachmentCount = 1,
 			PColorAttachments = &colorAttachmentRef,
+			PDepthStencilAttachment = &depthAttachmentRef,
 		};
 
 		SubpassDependency dependency = new() {
 			SrcSubpass = Vk.SubpassExternal,
 			DstSubpass = 0,
-			SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+			SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit
+				| PipelineStageFlags.EarlyFragmentTestsBit,
 			SrcAccessMask = 0,
-			DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+			DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit
+				| PipelineStageFlags.EarlyFragmentTestsBit,
 			DstAccessMask = AccessFlags.ColorAttachmentWriteBit
+				| AccessFlags.DepthStencilAttachmentWriteBit
 		};
 
-		RenderPassCreateInfo renderPassInfo = new() {
-			SType = StructureType.RenderPassCreateInfo,
-			AttachmentCount = 1,
-			PAttachments = &colorAttachment,
-			SubpassCount = 1,
-			PSubpasses = &subpass,
-			DependencyCount = 1,
-			PDependencies = &dependency,
-		};
-
-		if (s.vk!.CreateRenderPass
-			(s.device, in renderPassInfo, null, out renderPass) != Result.Success) {
-			throw new Exception("failed to create render pass!");
+		var attachments = new[] { colorAttachment, depthAttachment };
+		fixed(AttachmentDescription* ap = attachments) {
+			RenderPassCreateInfo renderPassInfo = new() {
+				SType = StructureType.RenderPassCreateInfo,
+				AttachmentCount = (uint)attachments.Length,
+				PAttachments = ap,
+				SubpassCount = 1,
+				PSubpasses = &subPass,
+				DependencyCount = 1,
+				PDependencies = &dependency,
+			};
+			if (s.vk!.CreateRenderPass
+				(s.device, in renderPassInfo, null, out renderPass) != Result.Success) {
+				throw new Exception("failed to create render pass!");
+			}
 		}
 	}
 
@@ -760,25 +762,29 @@ public unsafe class VKFrameBuffer : VKComponent {
 	public Framebuffer[]? swapChainFrameBuffers;
 
 	public override void init(VKSetup s) {
-		var (sc, rp, iv) = s.require<VKSwapChain, VKRenderPass, VKImageViews>();
+		var (sc, rp, iv, dr) = s.require<VKSwapChain, VKRenderPass
+			, VKImageViews, VKDepthResources>();
 		swapChainFrameBuffers = new Framebuffer[iv.swapChainImageViews!.Length];
 
 		for (int i = 0; i < iv.swapChainImageViews.Length; i++) {
-			var attachment = iv.swapChainImageViews[i];
-
-			FramebufferCreateInfo framebufferInfo = new() {
-				SType = StructureType.FramebufferCreateInfo,
-				RenderPass = rp.renderPass,
-				AttachmentCount = 1,
-				PAttachments = &attachment,
-				Width = sc.swapChainExtent.Width,
-				Height = sc.swapChainExtent.Height,
-				Layers = 1,
+			var attachments = new[] {
+				iv.swapChainImageViews[i],
+				dr.imageView
 			};
+			fixed(ImageView* ap = attachments) {
+				FramebufferCreateInfo framebufferInfo = new() {
+					SType = StructureType.FramebufferCreateInfo,
+					RenderPass = rp.renderPass,
+					AttachmentCount = (uint)attachments.Length,
+					PAttachments = ap,
+					Width = sc.swapChainExtent.Width,
+					Height = sc.swapChainExtent.Height,
+					Layers = 1,
+				};
 
-			if (s.vk!.CreateFramebuffer(s.device, in framebufferInfo
-				, null, out swapChainFrameBuffers[i]) != Result.Success) {
-				throw new Exception("failed to create frame buffer!");
+				s.vk!.CreateFramebuffer(s.device, in framebufferInfo
+					, null, out swapChainFrameBuffers[i])
+					.throwOnFail("failed to create frame buffer!");
 			}
 		}
 	}

@@ -1,8 +1,9 @@
 ﻿// Ignore Spelling: Utils Indices Vertices verts khr
 
-using Silk.NET.Vulkan;
-using Silk.NET.Core.Native;
 using _150_trying.geom;
+using _150_trying.utils;
+using Silk.NET.Core.Native;
+using Silk.NET.Vulkan;
 
 namespace _150_trying.VKComponents;
 
@@ -122,11 +123,22 @@ public unsafe class VKGraphicsPipeline : VKComponent {
 				PushConstantRangeCount = 0,
 			};
 
-			if (s.vk!.CreatePipelineLayout
-				(s.device, in pipelineLayoutInfo, null, out pipelineLayout)
-				!= Result.Success) {
-				throw new Exception("failed to create pipeline layout!");
-			}
+			s.vk!.CreatePipelineLayout(s.device
+				, in pipelineLayoutInfo, null, out pipelineLayout)
+				.throwOnFail("failed to create pipeline layout!");
+
+			PipelineDepthStencilStateCreateInfo depthStencil = new() {
+				SType = StructureType .PipelineDepthStencilStateCreateInfo,
+				DepthTestEnable = true,
+				DepthWriteEnable = true,
+				DepthCompareOp = CompareOp.Less,
+				DepthBoundsTestEnable = false,
+				MinDepthBounds = 0,
+				MaxDepthBounds = 1,
+				StencilTestEnable = false,
+				Front = { }, //Optional
+				Back = { }, //Optional
+			};
 
 			GraphicsPipelineCreateInfo pipelineInfo = new() {
 				SType = StructureType.GraphicsPipelineCreateInfo,
@@ -138,6 +150,7 @@ public unsafe class VKGraphicsPipeline : VKComponent {
 				PRasterizationState = &rasterizer,
 				PMultisampleState = &multisampling,
 				PColorBlendState = &colorBlending,
+				PDepthStencilState = &depthStencil,
 				Layout = pipelineLayout,
 				RenderPass = rp.renderPass,
 				Subpass = 0,
