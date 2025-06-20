@@ -92,8 +92,9 @@ public unsafe class VKGraphicsPipeline : VKComponent {
 
 			PipelineMultisampleStateCreateInfo multisampling = new() {
 				SType = StructureType.PipelineMultisampleStateCreateInfo,
-				SampleShadingEnable = false,
-				RasterizationSamples = SampleCountFlags.Count1Bit,
+				SampleShadingEnable = true,
+				MinSampleShading = 0.2f,
+				RasterizationSamples = s.msaaSamples,
 			};
 
 			PipelineColorBlendAttachmentState colorBlendAttachment = new() {

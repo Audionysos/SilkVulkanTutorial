@@ -323,6 +323,7 @@ public unsafe class VKDevicePicker : VKComponent {
 		foreach (var d in devices) {
 			if (IsDeviceSuitable(s, d)) {
 				s.physicalDevice = d;
+				s.msaaSamples = s.getMaxUsableSampleCount();
 				break;
 			}
 		}
@@ -455,7 +456,8 @@ public unsafe class VKLogicalDevice : VKComponent {
 		var dp = s.require<VKDevicePicker>();
 		var indices = dp.FindQueueFamilies(s, s.physicalDevice);
 
-		var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
+		var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value
+			, indices.PresentFamily!.Value };
 		uniqueQueueFamilies = uniqueQueueFamilies.Distinct().ToArray();
 
 		using var mem = GlobalMemory.Allocate(uniqueQueueFamilies.Length * sizeof(DeviceQueueCreateInfo));
@@ -475,6 +477,7 @@ public unsafe class VKLogicalDevice : VKComponent {
 
 		PhysicalDeviceFeatures deviceFeatures = new() {
 			SamplerAnisotropy = true,
+			SampleRateShading = true,
 		};
 
 		DeviceCreateInfo createInfo = new() {
@@ -638,96 +641,19 @@ public unsafe class VKSwapChain : VKComponent {
 	}
 }
 
-public unsafe class VKRenderPass : VKComponent {
-	public RenderPass renderPass;
-
-	public override void init(VKSetup s) {
-		var (sc, dr) = s.require<VKSwapChain, VKDepthResources>();
-		AttachmentDescription colorAttachment = new() {
-			Format = sc.swapChainImageFormat,
-			Samples = SampleCountFlags.Count1Bit,
-			LoadOp = AttachmentLoadOp.Clear,
-			StoreOp = AttachmentStoreOp.Store,
-			StencilLoadOp = AttachmentLoadOp.DontCare,
-			InitialLayout = ImageLayout.Undefined,
-			FinalLayout = ImageLayout.PresentSrcKhr,
-		};
-
-		AttachmentReference colorAttachmentRef = new() {
-			Attachment = 0,
-			Layout = ImageLayout.ColorAttachmentOptimal,
-		};
-
-		AttachmentDescription depthAttachment = new() {
-			Format = dr.format,
-			Samples = SampleCountFlags.Count1Bit,
-			LoadOp = AttachmentLoadOp.Clear,
-			StoreOp = AttachmentStoreOp.DontCare,
-			StencilLoadOp = AttachmentLoadOp.DontCare,
-			InitialLayout = ImageLayout.Undefined,
-			FinalLayout = ImageLayout.DepthStencilAttachmentOptimal,
-		};
-
-		AttachmentReference depthAttachmentRef = new() {
-			Attachment = 1,
-			Layout = ImageLayout.DepthStencilAttachmentOptimal,
-		};
-
-		SubpassDescription subPass = new() {
-			PipelineBindPoint = PipelineBindPoint.Graphics,
-			ColorAttachmentCount = 1,
-			PColorAttachments = &colorAttachmentRef,
-			PDepthStencilAttachment = &depthAttachmentRef,
-		};
-
-		SubpassDependency dependency = new() {
-			SrcSubpass = Vk.SubpassExternal,
-			DstSubpass = 0,
-			SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit
-				| PipelineStageFlags.EarlyFragmentTestsBit,
-			SrcAccessMask = 0,
-			DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit
-				| PipelineStageFlags.EarlyFragmentTestsBit,
-			DstAccessMask = AccessFlags.ColorAttachmentWriteBit
-				| AccessFlags.DepthStencilAttachmentWriteBit
-		};
-
-		var attachments = new[] { colorAttachment, depthAttachment };
-		fixed(AttachmentDescription* ap = attachments) {
-			RenderPassCreateInfo renderPassInfo = new() {
-				SType = StructureType.RenderPassCreateInfo,
-				AttachmentCount = (uint)attachments.Length,
-				PAttachments = ap,
-				SubpassCount = 1,
-				PSubpasses = &subPass,
-				DependencyCount = 1,
-				PDependencies = &dependency,
-			};
-			if (s.vk!.CreateRenderPass
-				(s.device, in renderPassInfo, null, out renderPass) != Result.Success) {
-				throw new Exception("failed to create render pass!");
-			}
-		}
-	}
-
-	public override void clear(VKSetup s) {
-		s.vk!.DestroyRenderPass(s.device, renderPass, null);
-	}
-
-}
-
 public unsafe class VKFrameBuffer : VKComponent {
 	public Framebuffer[]? swapChainFrameBuffers;
 
 	public override void init(VKSetup s) {
-		var (sc, rp, iv, dr) = s.require<VKSwapChain, VKRenderPass
-			, VKImageViews, VKDepthResources>();
+		var (sc, rp, iv, dr, cr) = s.require<VKSwapChain, VKRenderPass
+			, VKImageViews, VKDepthResources, VKColorResources>();
 		swapChainFrameBuffers = new Framebuffer[iv.swapChainImageViews!.Length];
 
 		for (int i = 0; i < iv.swapChainImageViews.Length; i++) {
 			var attachments = new[] {
+				cr.imgView,
+				dr.imageView,
 				iv.swapChainImageViews[i],
-				dr.imageView
 			};
 			fixed(ImageView* ap = attachments) {
 				FramebufferCreateInfo framebufferInfo = new() {

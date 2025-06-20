@@ -12,7 +12,6 @@ using BuffUsage = Silk.NET.Vulkan.BufferUsageFlags;
 using _150_trying.utils;
 using _150_trying.geom;
 using Silk.NET.Maths;
-using _150_trying.utils;
 using System.Diagnostics;
 
 namespace _150_trying.VKComponents;
@@ -34,6 +33,7 @@ public unsafe class VKSetup {
 	public bool EnableValidationLayers { get; set; } = true;
 
 	public PhysicalDevice physicalDevice;
+	public SampleCountFlags msaaSamples;
 	public Device device;
 	public Queue graphicsQueue;
 	public Queue presentQueue;
@@ -55,6 +55,7 @@ public unsafe class VKSetup {
 			new VKLogicalDevice(),
 			new VKSwapChain(),
 			new VKImageViews(),
+			new VKColorResources(),
 			new VKDepthResources(),
 			new VKRenderPass(),
 			new VKDescriptorSetLayout(),
@@ -276,6 +277,18 @@ public unsafe class VKSetup {
 		}
 
 		throw new Exception("failed to find suitable memory type!");
+	}
+	
+	public SampleCountFlags getMaxUsableSampleCount() {
+		vk.GetPhysicalDeviceProperties(physicalDevice, out var props);
+		var counts = props.Limits.FramebufferColorSampleCounts
+			& props.Limits.FramebufferDepthSampleCounts;
+
+		for (int i = (int)SampleCountFlags.Count64Bit; i > 1; i >>= 1) {
+			var f = (SampleCountFlags)i;
+			if (counts.HasFlag(f)) return f;
+		}
+		return SampleCountFlags.Count1Bit;
 	}
 	#endregion
 

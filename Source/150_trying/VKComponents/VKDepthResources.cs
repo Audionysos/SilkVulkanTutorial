@@ -25,9 +25,15 @@ public unsafe class VKDepthResources : VKComponent {
 			, (int)sc.swapChainExtent.Width, (int)sc.swapChainExtent.Height
 			, out image, out imageMem
 			, ImageUsageFlags.DepthStencilAttachmentBit
-			, _format);
+			, _format, samples:s.msaaSamples);
 		imageView = VKImageViews.createImageView(s, image, _format
 			, ImageAspectFlags.DepthBit);
+
+		//createImage(swapChainExtent.width, swapChainExtent.height
+		//	, 1, msaaSamples, depthFormat, VK_IMAGE_TILING_OPTIMAL
+		//	, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+		//	, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+		//	, depthImage, depthImageMemory);
 	}
 
 	public Format findDepthFormat(VKSetup s) {

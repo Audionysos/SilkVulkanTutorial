@@ -33,7 +33,7 @@ public unsafe class VKTextureSampler : VKComponent {
 			CompareEnable = false,
 			CompareOp = CompareOp.Always,
 			MipmapMode = SamplerMipmapMode.Linear,
-			MinLod = ti.mipLevels / 2,
+			MinLod = 0,
 			//MinLod = ti.mipLevels / 2,
 			MaxLod = ti.mipLevels,
 			MipLodBias = 0f,
@@ -215,7 +215,8 @@ public unsafe class VKTextureImage : VKComponent {
 		, ImageTiling tiling = ImageTiling.Optimal
 		, ImageLayout layout = ImageLayout.Undefined
 		, MemoryPropertyFlags properties = MemoryPropertyFlags.DeviceLocalBit
-		, uint mipLevels = 1)
+		, uint mipLevels = 1
+		, SampleCountFlags samples = SampleCountFlags.Count1Bit)
 	{
 		ImageCreateInfo imageInfo = new() {
 			SType = StructureType.ImageCreateInfo,
@@ -231,7 +232,7 @@ public unsafe class VKTextureImage : VKComponent {
 			Tiling = tiling,
 			InitialLayout = layout,
 			Usage = usage,
-			Samples = SampleCountFlags.Count1Bit,
+			Samples = samples,
 			SharingMode = SharingMode.Exclusive,
 		};
 
