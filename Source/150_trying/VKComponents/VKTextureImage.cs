@@ -1,11 +1,14 @@
-﻿// Ignore Spelling: img
+﻿// Ignore Spelling: img mip Mipmaps
 
-using SLImage = SixLabors.ImageSharp.Image;
-using SixLabors.ImageSharp.PixelFormats;
-using Silk.NET.Vulkan;
-using Buffer = Silk.NET.Vulkan.Buffer;
 using _150_trying.utils;
+using Silk.NET.Vulkan;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.PixelFormats;
+using System;
+using System.Threading;
+using Buffer = Silk.NET.Vulkan.Buffer;
 using Sampler = Silk.NET.Vulkan.Sampler;
+using SLImage = SixLabors.ImageSharp.Image;
 
 namespace _150_trying.VKComponents;
 
@@ -13,6 +16,7 @@ public unsafe class VKTextureSampler : VKComponent {
 	public Sampler sampler;
 
 	public override void init(VKSetup s) {
+		var ti = s.require<VKTextureImage>();
 		s.vk.GetPhysicalDeviceProperties(s.physicalDevice, out var properties);
 
 		SamplerCreateInfo si = new() {
@@ -29,9 +33,10 @@ public unsafe class VKTextureSampler : VKComponent {
 			CompareEnable = false,
 			CompareOp = CompareOp.Always,
 			MipmapMode = SamplerMipmapMode.Linear,
+			MinLod = ti.mipLevels / 2,
+			//MinLod = ti.mipLevels / 2,
+			MaxLod = ti.mipLevels,
 			MipLodBias = 0f,
-			MinLod = 0f,
-			MaxLod = 0f,
 		};
 
 		s.vk.CreateSampler(s.device, in si, null, out sampler)
@@ -49,7 +54,8 @@ public unsafe class VKTextureImageView : VKComponent {
 
 	public override void init(VKSetup s) {
 		var ti = s.require<VKTextureImage>();
-		view = VKImageViews.createImageView(s, ti.textureImage, ti.format);
+		view = VKImageViews.createImageView(s, ti.textureImage, ti.format
+			, mipLevels:ti.mipLevels);
 	}
 	
 	public override void clear(VKSetup s) {
@@ -62,12 +68,14 @@ public unsafe class VKTextureImage : VKComponent {
 	public Image textureImage;
 	DeviceMemory textureImageMemory;
 	public Format format { get; } = Format.R8G8B8A8Srgb;
+	public uint mipLevels;
 
 	public override void init(VKSetup s) {
 		var tf = s.require<VKModelLoading>().TEXTURE_PATH;
 		using var img = SLImage.Load<Rgba32>(tf);
 		//using var img = SLImage.Load<Rgba32>("textures/texture.jpg");
 		var imageSize = (ulong)(img.Width * img.Height * img.PixelType.BitsPerPixel / 8);
+		mipLevels = (uint)Math.Floor(Math.Log2(Math.Max(img.Width, img.Height))) + 1;
 
 		DeviceMemory stagingBufferMemory = default;
 		s.createBuffer(imageSize, BufferUsageFlags.TransferSrcBit
@@ -81,19 +89,121 @@ public unsafe class VKTextureImage : VKComponent {
 
 
 		createImage(s, img.Width, img.Height
-			, out textureImage, out textureImageMemory);
+			, out textureImage, out textureImageMemory
+			, mipLevels:mipLevels
+			, usage: ImageUsageFlags.TransferDstBit
+				| ImageUsageFlags.TransferSrcBit
+				| ImageUsageFlags.SampledBit
+		);
 
-		
+
 		transitionImageLayout(s, textureImage, format
-			, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+			, ImageLayout.Undefined, ImageLayout.TransferDstOptimal
+			, mipLevels: mipLevels);
 		copyBufferToImage(s, stagingBuffer, textureImage
 			, (uint)img.Width, (uint)img.Height);
-		transitionImageLayout(s, textureImage, format
-			, ImageLayout.TransferDstOptimal
-			, ImageLayout.ShaderReadOnlyOptimal);
+		generateMipmaps(s, textureImage, img.Width, img.Height, mipLevels);
 
 		s.vk.DestroyBuffer(s.device, stagingBuffer, null);
 		s.vk.FreeMemory(s.device, stagingBufferMemory, null);
+	}
+
+	public static void generateMipmaps(VKSetup s, Image image, int w, int h, uint mipLevels
+		, Format format = Format.R8G8B8A8Srgb)
+	{
+		s.vk.GetPhysicalDeviceFormatProperties(s.physicalDevice, format, out var prs);
+		if ((prs.OptimalTilingFeatures & FormatFeatureFlags.SampledImageFilterLinearBit) == 0)
+			throw new NotSupportedException("Texture image format does not support linear blitting.");
+
+		var cb = s.beginSingleTimeCommands();
+		ImageMemoryBarrier br = new() {
+			SType = StructureType.ImageMemoryBarrier,
+			Image = image,
+			SrcQueueFamilyIndex = 0, //VK_QUEUE_FAMILY_IGNORED
+			DstQueueFamilyIndex = 0, //VK_QUEUE_FAMILY_IGNORED
+			SubresourceRange = {
+				AspectMask = ImageAspectFlags.ColorBit,
+				BaseArrayLayer = 0,
+				LayerCount = 1,
+				LevelCount = 1
+			},
+		};
+
+		int mipWidth = w;
+		int mipHeight = h;
+
+		for (uint i = 1; i < mipLevels; i++) {
+			br.SubresourceRange.BaseMipLevel = i - 1;
+			br.OldLayout = ImageLayout.TransferDstOptimal;
+			br.NewLayout = ImageLayout.TransferSrcOptimal;
+			br.SrcAccessMask = AccessFlags.TransferWriteBit;
+			br.DstAccessMask = AccessFlags.TransferReadBit;
+
+			s.vk.CmdPipelineBarrier(cb, PipelineStageFlags.TransferBit
+				, PipelineStageFlags.TransferBit, 0
+				, 0, null
+				, 0, null
+				, 1, &br);
+
+
+			ImageBlit blit = new() {
+				SrcSubresource = {
+					AspectMask = ImageAspectFlags.ColorBit,
+					MipLevel = i - 1,
+					BaseArrayLayer = 0,
+					LayerCount = 1
+				},
+				SrcOffsets = {
+					Element0 = new Offset3D(0,0,0),
+					Element1 = new Offset3D(mipWidth, mipHeight, 1),
+				},
+				DstOffsets = {
+					Element0 = new Offset3D(0,0,0),
+					Element1 = new Offset3D(mipWidth > 1 ? mipWidth /2 : 1,
+						mipHeight > 1 ? mipHeight / 2 : 1, 1),
+				},
+				DstSubresource = {
+					AspectMask = ImageAspectFlags.ColorBit,
+					MipLevel = i,
+					BaseArrayLayer = 0,
+					LayerCount = 1
+				}
+			};
+
+			s.vk.CmdBlitImage(cb
+				, image, ImageLayout.TransferSrcOptimal
+				, image, ImageLayout.TransferDstOptimal
+				, 1, &blit, Filter.Linear);
+
+			br.OldLayout = ImageLayout.TransferSrcOptimal;
+			br.NewLayout = ImageLayout.ShaderReadOnlyOptimal;
+			br.SrcAccessMask = AccessFlags.TransferReadBit;
+			br.DstAccessMask = AccessFlags.ShaderReadBit;
+
+			s.vk.CmdPipelineBarrier(cb, PipelineStageFlags.TransferBit
+				, PipelineStageFlags.FragmentShaderBit, 0
+				, 0, null
+				, 0, null
+				, 1, &br);
+
+			if (mipWidth > 1) mipWidth /= 2;
+			if (mipHeight > 1) mipHeight /= 2;
+
+		}
+
+		br.SubresourceRange.BaseMipLevel = mipLevels - 1;
+		br.OldLayout = ImageLayout.TransferDstOptimal;// VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		br.NewLayout = ImageLayout.ShaderReadOnlyOptimal;// VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		br.SrcAccessMask = AccessFlags.TransferWriteBit;// VK_ACCESS_TRANSFER_WRITE_BIT;
+		br.DstAccessMask = AccessFlags.ShaderReadBit;// VK_ACCESS_SHADER_READ_BIT;
+
+		s.vk.CmdPipelineBarrier(cb, PipelineStageFlags.TransferBit
+			, PipelineStageFlags.FragmentShaderBit,0
+			, 0, null
+			, 0, null
+			, 1, &br);
+
+		s.endSingleTimeCommands(cb);
 	}
 
 	public static void createImage(VKSetup s, int w, int h
@@ -104,7 +214,8 @@ public unsafe class VKTextureImage : VKComponent {
 		, Format format = Format.R8G8B8A8Srgb
 		, ImageTiling tiling = ImageTiling.Optimal
 		, ImageLayout layout = ImageLayout.Undefined
-		, MemoryPropertyFlags properties = MemoryPropertyFlags.DeviceLocalBit)
+		, MemoryPropertyFlags properties = MemoryPropertyFlags.DeviceLocalBit
+		, uint mipLevels = 1)
 	{
 		ImageCreateInfo imageInfo = new() {
 			SType = StructureType.ImageCreateInfo,
@@ -114,7 +225,7 @@ public unsafe class VKTextureImage : VKComponent {
 				Height = (uint)h,
 				Depth = 1,
 			},
-			MipLevels = 1,
+			MipLevels = mipLevels,
 			ArrayLayers = 1,
 			Format = format,
 			Tiling = tiling,
@@ -146,7 +257,8 @@ public unsafe class VKTextureImage : VKComponent {
 	}
 
 	public static void transitionImageLayout(VKSetup s, Image img, Format f
-		, ImageLayout oldL, ImageLayout newL)
+		, ImageLayout oldL, ImageLayout newL
+		, uint mipLevels = 1)
 	{
 		var cb = s.beginSingleTimeCommands();
 
@@ -160,7 +272,7 @@ public unsafe class VKTextureImage : VKComponent {
 			SubresourceRange = {
 				AspectMask = ImageAspectFlags.ColorBit,
 				BaseMipLevel = 0,
-				LevelCount = 1,
+				LevelCount = mipLevels,
 				BaseArrayLayer = 0,
 				LayerCount = 1,
 			},
@@ -195,15 +307,6 @@ public unsafe class VKTextureImage : VKComponent {
 			, 0, null
 			, 1, in barrier
 		);
-
-		//vkCmdPipelineBarrier(
-		//	commandBuffer,
-		//	0 /* TODO */, 0 /* TODO */,
-		//	0,
-		//	0, nullptr,
-		//	0, nullptr,
-		//	1, &barrier
-		//);
 
 		s.endSingleTimeCommands(cb);
 	}
