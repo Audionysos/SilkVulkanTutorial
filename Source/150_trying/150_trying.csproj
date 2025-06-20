@@ -10,9 +10,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\Assets\viking_room.obj" Link="assets\viking_room.obj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\Assets\viking_room.png" Link="assets\viking_room.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Silk.NET" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Assimp" Version="2.22.0" />
     <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.22.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
+    <PackageReference Include="System.Text.Json" Version="10.0.0-preview.5.25277.114" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,6 +45,10 @@
     <None Update="textures\texture.jpg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="assets\" />
   </ItemGroup>
 
 </Project>

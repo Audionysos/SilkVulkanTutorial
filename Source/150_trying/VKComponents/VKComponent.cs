@@ -27,7 +27,6 @@ public abstract class VKComponent {
 
 }
 
-
 /// <summary>https://vulkan-tutorial.com/en/Uniform_buffers/Descriptor_pool_and_sets</summary>
 public unsafe class VKDescriptorPool : VKComponent {
 	DescriptorPool descriptorPool;

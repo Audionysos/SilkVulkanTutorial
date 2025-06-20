@@ -39,6 +39,9 @@ public unsafe class VKVertexIndexBuffer : VKComponent {
 	};
 
 	public override void init(VKSetup s) {
+		var m = s.require<VKModelLoading>();
+		verts = m.vertices; //according to original tutorial this suppose to be 265,645
+		inds = m.indices;
 		createVertexBuffer(s);
 		createIndexBuffer(s);
 	}

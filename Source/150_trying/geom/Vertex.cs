@@ -23,6 +23,13 @@ public class Vertices : IReadOnlyList<Vertex> {
 		return vs;
 	}
 
+	public Vertices() { }
+	public Vertices(List<Vertex> referenced) {
+		_all = referenced;
+	}
+
+	public void Add(Vertex v) => _all.Add(v);
+
 	public void Add((float x, float y, float z) pos, (float r, float g, float b) color, (float u, float v) texCoord = default) {
 		_all.Add(new Vertex() {
 			pos = new Vector3D<float>(pos.x, pos.y, pos.z),

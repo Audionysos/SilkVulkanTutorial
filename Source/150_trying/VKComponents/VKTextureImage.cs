@@ -64,7 +64,9 @@ public unsafe class VKTextureImage : VKComponent {
 	public Format format { get; } = Format.R8G8B8A8Srgb;
 
 	public override void init(VKSetup s) {
-		using var img = SLImage.Load<Rgba32>("textures/texture.jpg");
+		var tf = s.require<VKModelLoading>().TEXTURE_PATH;
+		using var img = SLImage.Load<Rgba32>(tf);
+		//using var img = SLImage.Load<Rgba32>("textures/texture.jpg");
 		var imageSize = (ulong)(img.Width * img.Height * img.PixelType.BitsPerPixel / 8);
 
 		DeviceMemory stagingBufferMemory = default;

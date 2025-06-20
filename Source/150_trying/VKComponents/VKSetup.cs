@@ -61,6 +61,7 @@ public unsafe class VKSetup {
 			new VKGraphicsPipeline(),
 			new VKFrameBuffer(),
 			new VKCommandPool(),
+			new VKModelLoading(),
 			new VKTextureImage(),
 			new VKTextureImageView(),
 			new VKTextureSampler(),

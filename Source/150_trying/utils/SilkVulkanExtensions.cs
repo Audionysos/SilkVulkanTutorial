@@ -1,5 +1,6 @@
 ﻿using Silk.NET.Vulkan;
 using System.Diagnostics;
+using Silk.NET.Maths;
 using System.Numerics;
 
 namespace _150_trying.utils;
@@ -22,6 +23,13 @@ public static class SilkVulkanExtensions {
 		return degrees * T.CreateTruncating(Math.PI)
 			/ T.CreateTruncating(180f);
 	}
+
+	public static Vector3D<float> float3(float x = 0, float y = 0, float z = 0)
+		=> new Vector3D<float>(x, y, z);
+
+	public static Vector2D<float> float2(float x = 0, float y = 0)
+		=> new Vector2D<float>(x, y);
+
 }
 
 [Serializable]
