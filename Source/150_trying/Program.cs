@@ -48,6 +48,7 @@ unsafe class HelloTriangleApplication {
 	}
 
 	private void FramebufferResizeCallback(Vector2D<int> d) {
+		setup.resize();
 		//That should eventually cause `RecreateSwapChain()` which is not include currently in the project
 	}
 }

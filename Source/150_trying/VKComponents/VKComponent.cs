@@ -25,6 +25,10 @@ public abstract class VKComponent {
 	public abstract void init(VKSetup s);
 	public abstract void clear(VKSetup s);
 
+	public override string ToString() {
+		var n = GetType().Name.Substring("VK".Length);
+		return n;
+	}
 }
 
 /// <summary>https://vulkan-tutorial.com/en/Uniform_buffers/Descriptor_pool_and_sets</summary>

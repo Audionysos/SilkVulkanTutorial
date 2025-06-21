@@ -1889,7 +1889,8 @@ unsafe class HelloTriangleApplication
             RecreateSwapChain();
             return;
         }
-        else if(result != Result.Success && result != Result.SuboptimalKhr)
+        else if(result != Result.Success
+            && result != Result.SuboptimalKhr)
         {
             throw new Exception("failed to acquire swap chain image!");
         }
@@ -1952,7 +1953,9 @@ unsafe class HelloTriangleApplication
 
         result = khrSwapChain.QueuePresent(presentQueue, presentInfo);
 
-        if(result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || frameBufferResized)
+        if(result == Result.ErrorOutOfDateKhr
+            || result == Result.SuboptimalKhr
+            || frameBufferResized)
         {
             frameBufferResized = false;
             RecreateSwapChain();

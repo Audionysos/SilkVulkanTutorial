@@ -93,6 +93,39 @@ public unsafe class VKSetup {
 			throw new Exception("Check out output for Vulkan errors during cleanup");
 	}
 
+	#region Reseting
+	private void reset(params Type[] comps) {
+		var set = new HashSet<Type>(comps);
+		var ins = components.FindAll(c => set.Contains(c.GetType()));
+		ins.Reverse();
+		foreach (var c in ins) c.clear(this);
+		ins.Reverse();
+		foreach (var c in ins) c.init(this);
+		
+	}
+
+	public TypeCollector<VKComponent> reset<T>() where T : VKComponent {
+		var tc = new TypeCollector<VKComponent>(reset);
+		tc._<T>(); return tc;
+	} 
+
+	public class TypeCollector<T>{
+		private List<Type> types = [];
+		private readonly Action<Type[]> execution;
+
+		public TypeCollector(Action<Type[]> execution) {
+			this.execution = execution;
+		}
+
+		public TypeCollector<T> _<E>() where E : T {
+			types.Add(typeof(E));
+			return this;
+		}
+
+		public void execute() => execution(types.ToArray());
+	}
+	#endregion
+
 	int currentFrame;
 	public void DrawFrame(double delta) {
 		var (so, sc, cb, ub) = require<VKSyncObjects, VKSwapChain
@@ -139,29 +172,60 @@ public unsafe class VKSetup {
 
 		vk!.ResetFences(device, 1, in so.inFlightFences[currentFrame]);
 
-		if (vk!.QueueSubmit(graphicsQueue, 1, in submitInfo
-			, so.inFlightFences[currentFrame]) != Result.Success) {
-			throw new Exception("failed to submit draw command buffer!");
-		}
+		vk!.QueueSubmit(graphicsQueue, 1, in submitInfo
+			, so.inFlightFences[currentFrame])
+				.throwOnFail("failed to submit draw command buffer!");
 
 		var swapChains = stackalloc[] { sc.swapChain };
 		PresentInfoKHR presentInfo = new() {
 			SType = StructureType.PresentInfoKhr,
-
 			WaitSemaphoreCount = 1,
 			PWaitSemaphores = signalSemaphores,
-
 			SwapchainCount = 1,
 			PSwapchains = swapChains,
-
 			PImageIndices = &imageIndex
 		};
 
-		sc.khrSwapChain.QueuePresent(presentQueue, in presentInfo);
+		var r = sc.khrSwapChain.QueuePresent(presentQueue, in presentInfo);
+		if (r == Result.ErrorOutOfDateKhr
+			|| r == Result.SuboptimalKhr
+			|| requireResize)
+			RecreateSwapChain();
+		else r.throwOnFail("Failed to present swap chain image.");
 
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
 	}
+
+	private void RecreateSwapChain() {
+		requireResize = false;
+		Vector2D<int> framebufferSize = window.FramebufferSize;
+		while (framebufferSize.X == 0 || framebufferSize.Y == 0) {
+			framebufferSize = window.FramebufferSize;
+			window.DoEvents();
+		}
+		vk.DeviceWaitIdle(device);
+
+		reset<VKSwapChain>().
+			_<VKImageViews>().
+			_<VKRenderPass>().
+			_<VKGraphicsPipeline>().
+			_<VKColorResources>().
+			_<VKDepthResources>().
+			_<VKFrameBuffer>().
+			_<VKUniformBuffers>().
+			_<VKDescriptorPool>().
+			//_<VKDescriptorSetLayout>().
+			_<VKCommandBuffers>().
+		execute();
+		require<VKSyncObjects>().imagesInFlight= new Fence
+			[require<VKSwapChain>().swapChainImages!.Length];
+
+		//imagesInFlight = new Fence[swapChainImages!.Length];
+	}
+
+	private bool requireResize = false;
+	public void resize() => requireResize = true;
 
 	private DateTime startTime = DateTime.Now;
 
@@ -170,7 +234,7 @@ public unsafe class VKSetup {
 		var ubo = new UniformBufferObject() {
 			model = Matrix4X4<float>.Identity
 				* Matrix4X4.CreateFromAxisAngle<float>
-				(new Vector3D<float>(0, 0, 1), time * 90.0f.toRadians() ),
+				(new Vector3D<float>(0, 0, 1), time * 90.0f.toRadians() / 2 ),
 			view = Matrix4X4.CreateLookAt(
 				new Vector3D<float>(2, 2, 2)
 				, new Vector3D<float>(0, 0, 0)

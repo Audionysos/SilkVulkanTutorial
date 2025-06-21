@@ -36,6 +36,7 @@ public unsafe class VKUniformBuffers : VKComponent {
 			s.vk.DestroyBuffer(s.device, all[i].buffer, null);
 			s.vk.FreeMemory(s.device, all[i].mem, null);
 		}
+		all.Clear(); mapped.Clear();
 	}
 }
 
