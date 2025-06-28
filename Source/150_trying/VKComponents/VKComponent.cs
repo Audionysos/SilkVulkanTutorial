@@ -133,59 +133,6 @@ public unsafe class VKDescriptorPool : VKComponent {
 
 }
 
-//--------^^^^^^^^^^^^^^^^^^^^^^^^^^
-//--------vvvvvvvvvvvvvvvvvvvvvvvvv
-
-public unsafe class VKDebugMessenger : VKComponent {
-	public ExtDebugUtils? debugUtils;
-	public DebugUtilsMessengerEXT debugMessenger;
-	public List<string> errors = new ();
-
-	public override void init(VKSetup s) {
-		if (!s.EnableValidationLayers) return;
-
-		//TryGetInstanceExtension equivalent to method CreateDebugUtilsMessengerEXT from original tutorial.
-		if (!s.vk!.TryGetInstanceExtension(s.instance, out debugUtils)) return;
-
-		DebugUtilsMessengerCreateInfoEXT createInfo = new();
-		PopulateDebugMessengerCreateInfo(ref createInfo);
-
-		debugUtils!.CreateDebugUtilsMessenger(s.instance, in createInfo
-			, null, out debugMessenger)
-			.throwOnFail("failed to set up debug messenger!");
-	}
-
-	private void PopulateDebugMessengerCreateInfo(ref DebugUtilsMessengerCreateInfoEXT createInfo) {
-		createInfo.SType = StructureType.DebugUtilsMessengerCreateInfoExt;
-		createInfo.MessageSeverity = DebugUtilsMessageSeverityFlagsEXT.VerboseBitExt |
-									 DebugUtilsMessageSeverityFlagsEXT.WarningBitExt |
-									 DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt;
-		createInfo.MessageType = DebugUtilsMessageTypeFlagsEXT.GeneralBitExt |
-								 DebugUtilsMessageTypeFlagsEXT.PerformanceBitExt |
-								 DebugUtilsMessageTypeFlagsEXT.ValidationBitExt;
-		createInfo.PfnUserCallback = (DebugUtilsMessengerCallbackFunctionEXT)
-			DebugCallback;
-	}
-
-	private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT messageSeverity
-		, DebugUtilsMessageTypeFlagsEXT messageTypes
-		, DebugUtilsMessengerCallbackDataEXT* pCallbackData
-		, void* pUserData) {
-		var e = Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage);
-		Debug.WriteLine($"ERROR VK:" + e);
-		errors.Add(e!);
-		return Vk.False;
-	}
-
-	public override void clear(VKSetup s) {
-		if (s.EnableValidationLayers) {
-			//DestroyDebugUtilsMessenger equivalent to method DestroyDebugUtilsMessengerEXT from original tutorial.
-			debugUtils!.DestroyDebugUtilsMessenger(s.instance, debugMessenger, null);
-		}
-	}
-
-}
-
 public unsafe class VKInstance : VKComponent {
 
 	//this is also called in Debug messenger - mistake?
@@ -228,7 +175,7 @@ public unsafe class VKInstance : VKComponent {
 
 		var extensions = GetRequiredExtensions(s);
 		createInfo.EnabledExtensionCount = (uint)extensions.Length;
-		createInfo.PpEnabledExtensionNames = (byte**)SilkMarshal.StringArrayToPtr(extensions); ;
+		createInfo.PpEnabledExtensionNames = (byte**)SilkMarshal.StringArrayToPtr(extensions);
 
 		if (s.EnableValidationLayers) {
 			createInfo.EnabledLayerCount = (uint)s.validationLayers.Length;
@@ -243,11 +190,9 @@ public unsafe class VKInstance : VKComponent {
 			createInfo.PNext = null;
 		}
 
-		if (s.vk.CreateInstance(in createInfo, null, out var instance) != Result.Success) {
-			throw new Exception("failed to create instance!");
-		} else {
-			s.instance = instance;
-		}
+		s.vk.CreateInstance(in createInfo, null, out var instance)
+			.throwOnFail("failed to create instance!");
+		s.instance = instance;
 
 		Marshal.FreeHGlobal((nint)appInfo.PApplicationName);
 		Marshal.FreeHGlobal((nint)appInfo.PEngineName);
@@ -504,7 +449,8 @@ public unsafe class VKLogicalDevice : VKComponent {
 			createInfo.EnabledLayerCount = 0;
 		}
 
-		if (s.vk!.CreateDevice(s.physicalDevice, in createInfo, null, out s.device)
+		if (s.vk!.CreateDevice(s.physicalDevice, in createInfo, null
+			, out s.device)
 				!= Result.Success) {
 			throw new Exception("failed to create logical device!");
 		}
